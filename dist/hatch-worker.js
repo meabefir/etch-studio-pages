@@ -61,12 +61,13 @@ self.onmessage = ({ data }) => {
       return [u, v];
     }
     const allPaths = [];
+    const maxLines=Math.min(120000,Math.max(18000,Math.ceil(count/80)));
     let lineCount = 0;
     function layer(cross) {
-      const cell = Math.max(2, minSpace * 0.75), gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
+      const cell = Math.max(1, minSpace * 0.75), gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
       const bins = new Array(gw * gh);
       const eligible = i => i >= 0 && mask[i] && (!cross || style(mask[i]).cross) && darkness[i] >= (cross ? style(mask[i]).crossThreshold : style(mask[i]).highlight);
-      const queue = [], seeds = [], step = Math.max(0.8, 1.25 * scale);
+      const queue = [], seeds = [], step = Math.max(0.35, Math.min(1.25 * scale, minSpace * .6));
       function available(x, y, distance) {
         const object = mask[pixel(x, y)];
         const bx = Math.floor(x / cell), by = Math.floor(y / cell), range = Math.ceil(distance / cell), d2 = distance * distance;
@@ -105,21 +106,23 @@ self.onmessage = ({ data }) => {
       }
       seeds.sort((a, b) => b[2] - a[2]);
       let cursor = 0, fallback = 0, attempts = 0;
-      while ((cursor < queue.length || fallback < seeds.length) && attempts++ < 220000 && lineCount < 18000) {
+      while ((cursor < queue.length || fallback < seeds.length) && attempts++ < maxLines * 14 && lineCount < maxLines) {
         const seed = cursor < queue.length ? queue[cursor++] : seeds[fallback++];
         const [sx, sy] = seed, i = pixel(sx, sy);
         if (i < 0 || !mask[i] || !eligible(i) || !available(sx, sy, spacing[i] * 0.95)) continue;
         const backward = trace(sx, sy, -1), forward = trace(sx, sy, 1), points = [];
         for (let j = backward.length - 2; j >= 0; j -= 2) points.push(backward[j], backward[j + 1]);
         points.push(...forward.slice(2));
-        if (points.length < Math.max(10, 8 * scale)) continue;
+        // Integration steps already scale with image size. Scaling the point
+        // count again would discard more detail in high-resolution exports.
+        if (points.length < 10) continue;
         lineCount++; allPaths.push({ object: mask[i], points });
         for (let j = 0; j < points.length; j += 4) {
           const x = points[j], y = points[j + 1], b = Math.floor(y / cell) * gw + Math.floor(x / cell);
           (bins[b] ||= []).push(x, y, mask[i]);
         }
         // New seeds on both sides extend the same family of long parallel strokes.
-        for (let j = 6; j < points.length - 2 && queue.length < 180000; j += Math.max(8, Math.round(14 * scale))) {
+        for (let j = 6; j < points.length - 2 && queue.length < maxLines * 12; j += Math.max(8, Math.round(14 * scale))) {
           const x = points[j], y = points[j + 1], d = direction(x, y, 1, 0, cross), pi = pixel(x, y);
           if (!d || pi < 0) continue;
           const distance = spacing[pi] * 1.08;

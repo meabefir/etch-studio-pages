@@ -12,6 +12,8 @@ import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
+import { renderOutput } from './output-renderer.js';
+import { copyOutputCamera } from './output-frame.js';
 export { defaults } from './settings.js';
 
 const vertexShader = `
@@ -392,36 +394,26 @@ export class EtchEngine extends EventTarget {
     try {
       const r = this.container.getBoundingClientRect(), scale = Math.min(2, this.params.quality / Math.max(r.width, r.height)), w = Math.max(2, Math.round(r.width * scale)), h = Math.max(2, Math.round(r.height * scale));
       if (!this.target || this.target.width !== w || this.target.height !== h) { this.target?.dispose(); this.target = new THREE.WebGLRenderTarget(w, h, { count: 3, type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); }
-      this.scene.updateMatrixWorld(true); this.camera.updateMatrixWorld(true);
-      const lights = this.lights.filter(x => x.visible), originals = [];
-      for (let m = 0; m < this.models.length; m++) this.models[m].object.traverse(mesh => {
-        if (!mesh.isMesh) return;
-        originals.push([mesh, mesh.material]); const mat = mesh.userData.fieldMaterial; mesh.material = mat;
-        const style = this.styleFor(this.models[m]), u = mat.uniforms; u.uId.value = m + 1; u.uAspect.value = this.camera.aspect; u.uFar.value = this.camera.far; u.uFlow.value = style.flow; u.uAmbient.value = style.ambient; u.uCount.value = lights.length;
-        for (let i = 0; i < lights.length; i++) {
-          const light = lights[i], v = light.object.getWorldPosition(new THREE.Vector3());
-          if (light.lightType === 'sun') v.sub(light.target).normalize().transformDirection(this.camera.matrixWorldInverse); else v.applyMatrix4(this.camera.matrixWorldInverse);
-          u.uLights.value[i].set(v.x, v.y, v.z, light.lightType === 'sun' ? 0 : 1);
-          const c = light.object.color, luminance = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
-          u.uPowers.value[i].set(light.intensity * luminance, light.falloff);
-        }
-      });
-      const normal = new Uint8Array(w * h * 4), field = new Uint8Array(w * h * 4), depth = new Uint8Array(w * h * 4);
-      try {
-        this.renderer.setRenderTarget(this.target); this.renderer.setClearColor(0, 0); this.renderer.autoClear = true; this.renderer.render(this.scene, this.camera);
-        this.renderer.readRenderTargetPixels(this.target, 0, 0, w, h, normal, 0, 0);
-        this.renderer.readRenderTargetPixels(this.target, 0, 0, w, h, field, 0, 1);
-        this.renderer.readRenderTargetPixels(this.target, 0, 0, w, h, depth, 0, 2);
-      } finally { this.renderer.setRenderTarget(null); for (const [mesh, material] of originals) mesh.material = material; }
+      const {normal,field,depth}=this.geometryBuffers(this.camera,w,h,this.target);
       const buffers = warpBuffers(normal, field, depth, w, h, this.lensSettings());
       this.hatcher.postMessage({ id, width: w, height: h, scale, ...buffers, far: this.camera.far, params: this.params, objectParams: this.models.map(entry => this.styleFor(entry)) }, [buffers.normal.buffer, buffers.field.buffer, buffers.depth.buffer]);
     } catch (e) { this.busy = false; this.emit('error', e.message); }
   }
-  exportPNG() {
-    if (this.mode === 'hatch' && !this.ready) throw new Error('Wait for the current hatching render to finish.');
-    if (this.mode === 'hatch') return this.paperCanvas;
-    // Export the illustration without transform gizmos and selection helpers.
-    this.renderView(true, false);
-    const copy = document.createElement('canvas'); copy.width = this.renderer.domElement.width; copy.height = this.renderer.domElement.height; copy.getContext('2d').drawImage(this.renderer.domElement, 0, 0); this.draw(); return copy;
+  geometryBuffers(camera,w,h,target){
+    this.scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
+    const lights=this.lights.filter(x=>x.visible),originals=[],normal=new Uint8Array(w*h*4),field=new Uint8Array(w*h*4),depth=new Uint8Array(w*h*4);
+    const renderer=this.renderer,oldTarget=renderer.getRenderTarget(),clear=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha(),auto=renderer.autoClear;
+    try{
+      for(let m=0;m<this.models.length;m++)this.models[m].object.traverse(mesh=>{
+        if(!mesh.isMesh)return;originals.push([mesh,mesh.material]);const mat=mesh.userData.fieldMaterial;mesh.material=mat;
+        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;
+        for(let i=0;i<lights.length;i++){const light=lights[i],v=light.object.getWorldPosition(new THREE.Vector3());if(light.lightType==='sun')v.sub(light.target).normalize().transformDirection(camera.matrixWorldInverse);else v.applyMatrix4(camera.matrixWorldInverse);
+          u.uLights.value[i].set(v.x,v.y,v.z,light.lightType==='sun'?0:1);const c=light.object.color;u.uPowers.value[i].set(light.intensity*(c.r*.2126+c.g*.7152+c.b*.0722),light.falloff);}
+      });
+      renderer.setRenderTarget(target);renderer.setClearColor(0,0);renderer.autoClear=true;renderer.render(this.scene,camera);
+      renderer.readRenderTargetPixels(target,0,0,w,h,normal,0,0);renderer.readRenderTargetPixels(target,0,0,w,h,field,0,1);renderer.readRenderTargetPixels(target,0,0,w,h,depth,0,2);return {normal,field,depth};
+    }finally{renderer.setRenderTarget(oldTarget);renderer.setClearColor(clear,alpha);renderer.autoClear=auto;for(const [mesh,material]of originals)mesh.material=material;}
   }
+  captureOutputView(){this.camera.updateMatrixWorld(true);this.scene.updateMatrixWorld(true);return {camera:copyOutputCamera(this.camera),lens:{...this.lensSettings()},referenceHeight:Math.max(1,this.container.clientHeight),mode:this.mode,name:this.activeCamera.name};}
+  exportPNG(capture,settings,options){return renderOutput(this,capture,settings,options);}
 }

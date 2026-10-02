@@ -1,11 +1,11 @@
-import { validateSigil, nodeMap, pointOf, radiusOf } from './sigil-data.js';
+import { validateSigil, nodeMap, pointOf, radiusOf, resolveNode, curveSettings, motifSettings } from './sigil-data.js';
 import { adaptiveCurveParameters, adaptiveGrowthSamples, planSigilResolution } from './sigil-resolution.js';
 import { buildSparseSurface } from './sigil-volume.js';
 const add=(a,b)=>a.map((v,i)=>v+b[i]),sub=(a,b)=>a.map((v,i)=>v-b[i]),mul=(a,s)=>a.map(v=>v*s),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],length=a=>Math.hypot(...a),unit=a=>mul(a,1/(length(a)||1)),lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=(seed,i)=>{const n=Math.sin(seed*127.1+i*311.7)*43758.5453;return n-Math.floor(n);};
 function bezier(a,b,c,d,t){const u=1-t;return a.map((v,i)=>v*u*u*u+3*b[i]*u*u*t+3*c[i]*u*t*t+d[i]*t*t*t);}
 export function sampleCurve(curve,design,step=null) {
-  const map=nodeMap(design),s=design.settings,points=[];
+  const map=nodeMap(design),s=curveSettings(design,curve),points=[];
   for(let segment=0;segment<curve.nodes.length-1;segment++) {
     const a=curve.nodes[segment],b=curve.nodes[segment+1],p=pointOf(a,map),q=pointOf(b,map);
     const parameters=step?adaptiveCurveParameters(p,add(p,a.out),add(q,b.in),q,s,step):Array.from({length:s.curveResolution+1},(_,i)=>i/s.curveResolution);
@@ -62,18 +62,26 @@ function growth(points,s,index,step=null) {
   return groups;
 }
 function transformGroup(group,angle,mirror=false){const c=Math.cos(angle),s=Math.sin(angle),transform=p=>{const x=mirror?-p[0]:p[0];return [c*x-s*p[1],s*x+c*p[1],p[2]];};const points=group.points.map(p=>({...p,p:transform(p.p),t:transform(p.t),n:transform(p.n),b:transform(p.b)}));return {...group,points,clip:group.clip?group.clip.map(v=>v?{...v,p:transform(v.p),t:transform(v.t)}:null):null};}
-function sigilGroups(design,step=null) {
-  const s=design.settings,map=nodeMap(design),originals=[];
-  for(let i=0;i<design.curves.length;i++) {const curve=design.curves[i],points=sampleCurve(curve,design,step);if(points.at(-1).arc<.0001)continue;
+export function sigilGroups(design,step=null) {
+  const map=nodeMap(design),originals=[];
+  for(let i=0;i<design.curves.length;i++) {
+    const curve=design.curves[i],s=curveSettings(design,curve),points=sampleCurve(curve,design,step);if(points.at(-1).arc<.0001)continue;
     const first=points[0],last=points.at(-1),clip=s.cap==='flat'?[curve.nodes[0].link?null:{p:first.p,t:mul(first.t,-1),r:first.r},curve.nodes.at(-1).link?null:{p:last.p,t:last.t,r:last.r}]:null;
-    originals.push(sweep(points,'stem',s.flatten,clip),...growth(points,s,i,step));
+    originals.push(...[sweep(points,'stem',s.flatten,clip),...growth(points,s,i,step)].map(group=>({...group,settings:s,curveId:curve.id})));
   }
-  const poles=new Set(design.curves.flatMap(c=>c.nodes.filter(n=>n.link).map(n=>n.link)));
-  for(const id of poles){const n=map.get(id),r=radiusOf(n,map)*s.radiusScale*s.poleBulge;originals.push(sweep([{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:0,arc:0},{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:1,arc:0}],'pole'));}
+  const poles=new Set(design.curves.flatMap(c=>c.nodes.filter(n=>n.link).map(n=>resolveNode(n,map).id)));
+  for(const id of poles){const n=map.get(id),owner=design.curves.find(c=>c.nodes.includes(n)),s=curveSettings(design,owner),r=radiusOf(n,map)*s.radiusScale*s.poleBulge;
+    originals.push({...sweep([{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:0,arc:0},{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:1,arc:0}],'pole'),settings:s,curveId:owner.id});
+  }
   if(!originals.length)throw new Error('Give the curves some length before generating the mesh.');
-  const groups=[],signatures=new Set(),copies=s.symmetry==='radial'?s.radialCopies:s.symmetry==='mirror'?2:1;
-  for(let copy=0;copy<copies;copy++)for(const group of originals){const transformed=transformGroup(group,s.symmetry==='radial'?copy*Math.PI*2/copies:0,s.symmetry==='mirror'&&copy===1),signature=transformed.points.map(p=>p.p.map(n=>n.toFixed(4)).join(',')).join(';')+'|'+group.profile;if(signatures.has(signature))continue;signatures.add(signature);groups.push(transformed);}
-  return groups;
+  const groups=[],signatures=new Set();
+  // Each curve's symmetry and profile travel with its own sweeps and growth.
+  // Preserve copy order so legacy, inherited designs keep their original joins.
+  const copies=Math.max(...originals.map(g=>g.settings.symmetry==='radial'?g.settings.radialCopies:g.settings.symmetry==='mirror'?2:1));
+  for(let copy=0;copy<copies;copy++)for(const group of originals){const s=group.settings,count=s.symmetry==='radial'?s.radialCopies:s.symmetry==='mirror'?2:1;if(copy>=count)continue;
+    const transformed=transformGroup(group,s.symmetry==='radial'?copy*Math.PI*2/count:0,s.symmetry==='mirror'&&copy===1),signature=transformed.points.map(p=>p.p.map(n=>n.toFixed(4)).join(',')).join(';')+'|'+group.profile+'|'+JSON.stringify(motifSettings(s));
+    if(signatures.has(signature))continue;signatures.add(signature);groups.push(transformed);
+  }return groups;
 }
 export function buildSigil(input,report=()=>{}) {
   const start=performance.now(),design=validateSigil(input),s=design.settings;

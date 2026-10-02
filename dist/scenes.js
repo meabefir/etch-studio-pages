@@ -1,6 +1,7 @@
 import { validateSettings } from './settings.js';
 import { projections } from './lenses.js';
 import { validateSigil } from './sigil-data.js';
+import { validateOutput } from './output-settings.js';
 export const SCENE_STORAGE_KEY = 'etch.scenes.v1';
 const vector = (v, positive = false) => Array.isArray(v) && v.length === 3 && v.every(n => Number.isFinite(n) && Math.abs(n) < 1e9 && (!positive || n > 0));
 const name = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
@@ -29,10 +30,10 @@ export function validateScene(scene) {
     return Object.fromEntries(['id', 'name', 'projection', 'position', 'target', 'up', 'fov', 'orthoSize', 'distortion', 'near', 'far'].map(key => [key, entry[key]]));
   });
   if (!cameras.some(camera => camera.id === scene.activeCameraId)) reject('The active camera is missing.');
-  return { version: 1, settings, models, lights, cameras, activeCameraId: scene.activeCameraId, grid: Boolean(scene.grid),lightIcons:scene.lightIcons!==false, mode: scene.mode === 'solid' ? 'solid' : 'hatch' };
+  return { version: 1, settings, models, lights, cameras, output:scene.output==null?null:validateOutput(scene.output), activeCameraId: scene.activeCameraId, grid: Boolean(scene.grid),lightIcons:scene.lightIcons!==false, mode: scene.mode === 'solid' ? 'solid' : 'hatch' };
 }
 export function snapshotScene(engine) {
-  return validateScene({ version: 1, settings: { ...engine.params }, activeCameraId: engine.activeCamera.id, grid: engine.grid.visible,lightIcons:engine.showLightIcons, mode: engine.mode,
+  return validateScene({ version: 1, settings: { ...engine.params }, output:engine.outputSettings||null, activeCameraId: engine.activeCamera.id, grid: engine.grid.visible,lightIcons:engine.showLightIcons, mode: engine.mode,
     models: engine.models.map(e => ({ id: e.id, name: e.name, source: e.source, position: e.object.position.toArray(), rotation: [e.object.rotation.x, e.object.rotation.y, e.object.rotation.z], scale: e.object.scale.toArray(), visible: e.visible, hatch: e.hatch || null })),
     lights: engine.lights.map(e => ({ id: e.id, name: e.name, lightType: e.lightType, position: e.object.position.toArray(), target: e.target.toArray(), intensity: e.intensity, falloff: e.falloff, color: e.color, visible: e.visible, helperVisible: e.helperEnabled ?? e.helper.visible })),
     cameras: engine.cameras.map(e => engine.cameraSnapshot(e)) });

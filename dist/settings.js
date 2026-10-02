@@ -8,8 +8,8 @@ export const lightDefaults = {
 
 export const definitions = [
   ['stroke-controls', 'width', 'Line thickness', 0.3, 3, 0.05, ' px'],
-  ['stroke-controls', 'spacing', 'Shadow spacing', 2, 16, 0.5, ' px'],
-  ['stroke-controls', 'lightSpacing', 'Light spacing', 6, 60, 1, ' px'],
+  ['stroke-controls', 'spacing', 'Shadow spacing', 1, 16, 0.5, ' px'],
+  ['stroke-controls', 'lightSpacing', 'Light spacing', 1, 60, 1, ' px'],
   ['stroke-controls', 'length', 'Maximum line length', 100, 1800, 50, ' px'],
   ['flow-controls', 'flow', 'Curvature follow', 0, 1, 0.05, '%'],
   ['flow-controls', 'angle', 'Flow rotation', -90, 90, 1, '°'],

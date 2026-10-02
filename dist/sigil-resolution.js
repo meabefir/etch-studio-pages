@@ -1,4 +1,4 @@
-import { nodeMap, radiusOf } from './sigil-data.js';
+import { nodeMap, radiusOf, curveSettings } from './sigil-data.js';
 const distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
 function cubic(p,a,b,q,t){const u=1-t;return p.map((v,i)=>v*u*u*u+3*a[i]*u*u*t+3*b[i]*u*t*t+q[i]*t*t*t);}
 function lineDistance(p,a,b){const d=b.map((v,i)=>v-a[i]),l=d.reduce((n,v)=>n+v*v,0),t=l?Math.max(0,Math.min(1,p.reduce((n,v,i)=>n+(v-a[i])*d[i],0)/l)):0;return distance(p,a.map((v,i)=>v+d[i]*t));}
@@ -23,24 +23,25 @@ export function adaptiveGrowthSamples(extent,curvature,s,step,baseline) {
 export function planSigilResolution(groups,s,design=null) {
   const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
   for(const group of groups)for(const p of group.points){
-    const envelope=p.r*(1+s.rippleAmplitude)*(1+s.ridgeDepth)*(1+s.bark)*Math.max(1,group.flatten)+s.blend*2;
+    const style=group.settings||s;
+    const envelope=p.r*(1+style.rippleAmplitude)*(1+style.ridgeDepth)*(1+style.bark)*Math.max(1,group.flatten)+style.blend*2;
     for(let axis=0;axis<3;axis++){min[axis]=Math.min(min[axis],p.p[axis]-envelope);max[axis]=Math.max(max[axis],p.p[axis]+envelope);}
   }
-  const map=design?nodeMap(design):null,radii=design?design.curves.flatMap(c=>c.nodes.map(n=>radiusOf(n,map)*s.radiusScale*Math.min(1,s.flatten))):groups.filter(g=>g.profile==='stem').flatMap(g=>g.points.filter(p=>p.u>=.08&&p.u<=.92).map(p=>p.r*Math.min(1,g.flatten)));
+  const map=design?nodeMap(design):null,radii=design?design.curves.flatMap(c=>{const style=curveSettings(design,c);return c.nodes.map(n=>radiusOf(n,map)*style.radiusScale*Math.min(1,style.flatten));}):groups.filter(g=>g.profile==='stem').flatMap(g=>g.points.filter(p=>p.u>=.08&&p.u<=.92).map(p=>p.r*Math.min(1,g.flatten)));
   radii.sort((a,b)=>a-b);const referenceRadius=radii[Math.floor(radii.length/2)]||.09;
   const size=max.map((v,i)=>v-min[i]),baseStep=referenceRadius*2/Math.max(2,s.meshResolution/20);
   let wanted=baseStep;const across=2+s.adaptiveQuality*2,reasons=new Set();
   const request=(step,reason)=>{if(step>0&&Number.isFinite(step)&&step<wanted){wanted=step;reasons.add(reason);}};
   if(s.adaptiveResolution)for(const group of groups){
-    const points=group.points,total=points.at(-1).arc;
+    const style=group.settings||s,points=group.points,total=points.at(-1).arc;
     if(group.profile==='stem'){
       const radii=points.filter(p=>p.u>=.08&&p.u<=.92).map(p=>p.r);
       if(radii.length)request(Math.min(...radii)*Math.min(1,group.flatten)*2/across,'thin curves');
-      if(s.ripple&&s.rippleAmplitude>.001)request(total/(s.rippleFrequency*(6+s.adaptiveQuality*3)),'ripples');
-      if(s.bark>.001)request(total/(s.barkFrequency*(6+s.adaptiveQuality*3)),'bark');
-      if(s.ridges&&s.ridgeDepth>.001&&radii.length)request(Math.min(...radii)*2*Math.PI/(s.ridges*(6+s.adaptiveQuality*3)),'flutes');
-      const turns=Math.max(Math.abs(s.twist),Math.abs(s.ridgeTwist));if(turns>.001)request(total/(turns*(8+s.adaptiveQuality*4)),'spirals');
-      if(s.spineWave>.001||s.spineDepth>.001)request(total/(s.spineFrequency*(8+s.adaptiveQuality*4)),'waves');
+      if(style.ripple&&style.rippleAmplitude>.001)request(total/(style.rippleFrequency*(6+s.adaptiveQuality*3)),'ripples');
+      if(style.bark>.001)request(total/(style.barkFrequency*(6+s.adaptiveQuality*3)),'bark');
+      if(style.ridges&&style.ridgeDepth>.001&&radii.length)request(Math.min(...radii)*2*Math.PI/(style.ridges*(6+s.adaptiveQuality*3)),'flutes');
+      const turns=Math.max(Math.abs(style.twist),Math.abs(style.ridgeTwist));if(turns>.001)request(total/(turns*(8+s.adaptiveQuality*4)),'spirals');
+      if(style.spineWave>.001||style.spineDepth>.001)request(total/(style.spineFrequency*(8+s.adaptiveQuality*4)),'waves');
     } else if(group.profile==='thorn'){
       // Sample the narrowing section, rather than the vanishing mathematical tip.
       const section=points.reduce((a,p)=>Math.abs(p.u-.6)<Math.abs(a.u-.6)?p:a,points[0]);

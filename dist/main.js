@@ -1,4 +1,5 @@
 import { registerBrowserTools } from './browser-tools.js';
+import { OutputEditor } from './output-editor.js';
 import { EtchEngine } from './engine.js';
 import { defaults, depthKeys, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
@@ -210,7 +211,7 @@ async function restoreScene(state) {
     }
     // Only replace the visible scene after every model has been resolved and parsed.
     engine.select(null); for (const entry of [...engine.models, ...engine.lights]) engine.remove(entry);
-    engine.params = { ...state.settings }; engine.models = staged; for (const entry of staged) engine.scene.add(entry.object);
+    engine.params = { ...state.settings }; engine.outputSettings=state.output; engine.models = staged; for (const entry of staged) engine.scene.add(entry.object);
     for (const saved of state.lights) { const entry = engine.addLight(saved.lightType); entry.id = saved.id; entry.name = saved.name; entry.object.position.fromArray(saved.position); entry.target.fromArray(saved.target); entry.intensity = saved.intensity; entry.falloff = saved.falloff; entry.color = saved.color; entry.visible = entry.object.visible = saved.visible; entry.helperEnabled = saved.helperVisible; engine.updateLight(entry); }
     const cameras = state.cameras.map(saved => { const entry = engine.addCamera(saved); entry.id = saved.id; return entry; }); engine.cameras = cameras; engine.activateCamera(cameras.find(c => c.id === state.activeCameraId));
     engine.serial = Math.max(engine.serial, ...[...engine.models, ...engine.lights, ...engine.cameras].map(e => Number(e.id.split('-').pop()) || 0));
@@ -362,9 +363,7 @@ async function init() {
     } catch (error) { toast(error.name === 'QuotaExceededError' ? 'Browser storage is full. The preset was not saved.' : error.message || 'This browser could not save the preset.'); }
   };
   window.addEventListener('storage', e => { if (e.key === SCENE_STORAGE_KEY || e.key === null) { try { savedScenes = readSavedScenes(localStorage); populateScenes(); } catch (error) { toast(error.message); } } if (e.key === PRESET_STORAGE_KEY || e.key === null) { try { savedPresets = readSavedPresets(localStorage); populatePresets(); updatePresetStatus(); } catch (error) { toast(error.message); } } });
-  let exportURL;
-  $('export').onclick = () => { try { const canvas = engine.exportPNG(); canvas.toBlob(blob => { if (!blob) return toast('The image could not be exported.'); if (exportURL) URL.revokeObjectURL(exportURL); exportURL = URL.createObjectURL(blob); $('export-image').src = exportURL; $('download-image').href = exportURL; $('export-size').textContent = `${canvas.width} × ${canvas.height} px`; $('export-dialog').showModal(); }, 'image/png'); } catch (e) { toast(e.message); } };
-  $('close-export').onclick = () => $('export-dialog').close();
+  const outputEditor=new OutputEditor(engine);$('export').onclick=()=>outputEditor.open();
   document.addEventListener('keydown', e => {
     if (engine.navigation.active || document.querySelector('dialog[open]') || e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toLowerCase();
