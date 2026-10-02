@@ -12,7 +12,7 @@
 <body>
   <header class="header">
     <a class="brand" href="./" aria-label="Etch studio"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 24L19 7M14 25L25 8M7 15L12 7M22 25L26 19"/></svg><strong>etch</strong><span>HATCHING STUDIO</span></a>
-    <div class="header-actions"><span class="local-note">Models stay on your device</span><button id="export" class="button">Export PNG</button><button id="import" class="button accent">Import model <span class="plus">+</span></button></div>
+    <div class="header-actions"><span class="local-note">Models stay on your device</span><button id="light-icons" class="button light-icons-toggle" aria-label="Light icons" aria-pressed="true" title="Show or hide light icons and directions"><span aria-hidden="true">☼</span><span class="light-icons-label"> Light icons</span></button><button id="export" class="button">Export PNG</button><button id="import" class="button accent">Import model <span class="plus">+</span></button></div>
     <input id="file" type="file" accept=".obj,.glb" multiple hidden>
   </header>
   <main class="workspace">
@@ -30,11 +30,11 @@
       <div class="row add-lights"><button id="add-sun" class="button subtle">☼ Sun</button><button id="add-point" class="button subtle">◉ Point</button></div>
       <div class="section-caption light-caption">CAMERAS <span id="camera-count"></span></div>
       <div id="camera-list" class="scene-list"></div><button id="add-camera" class="button subtle full">＋ Add camera</button><p class="hint">Navigation moves the active camera. Add another to keep a separate view.</p>
-      <div class="scene-bottom"><button id="delete" class="button danger full" disabled>Delete selected</button><details class="controls-help"><summary>Navigation & shortcuts</summary><p>Drag to orbit · Right-drag to pan<br>Scroll to zoom · Click to select</p><dl><dt>Move / Rotate / Scale</dt><dd>W / E / R</dd><dt>Frame selected / scene</dt><dd>F</dd><dt>Delete selected</dt><dd>Del</dd><dt>Clear selection</dt><dd>Esc</dd></dl></details></div>
+      <div class="scene-bottom"><button id="delete" class="button danger full" disabled>Delete selected</button><details class="controls-help"><summary>Navigation & shortcuts</summary><p>Drag to orbit · Wheel-drag to pan<br>Scroll to zoom · Click to select<br>Hold right mouse: look & fly<br>WASD: move · Q/E: down/up<br>Shift: faster · Scroll: fly speed</p><dl><dt>Move / Rotate / Scale</dt><dd>W / E / R</dd><dt>Frame selected / scene</dt><dd>F</dd><dt>Delete selected</dt><dd>Del</dd><dt>Clear selection</dt><dd>Esc</dd></dl></details></div>
     </aside>
     <section class="stage" aria-label="Drawing workspace">
       <div class="stage-toolbar"><div class="segmented view-modes" role="group" aria-label="View mode"><button data-view="hatch" class="active">Hatching</button><button data-view="solid">Shaded</button></div><span class="toolbar-divider"></span><div class="transform-modes" role="group" aria-label="Transform mode"><button data-transform="translate" class="active" title="Move (W)" aria-label="Move">↔</button><button data-transform="rotate" title="Rotate (E)" aria-label="Rotate">⟳</button><button data-transform="scale" title="Scale (R)" aria-label="Scale">⤢</button></div><select id="space" aria-label="Transform space"><option value="world">World</option><option value="local">Local</option></select><button id="frame" title="Frame selected or scene (F)" class="frame-button">Frame</button></div>
-      <div id="viewport" class="viewport"><canvas id="paper" aria-label="Hatching render"></canvas><div id="loading" class="loading">Preparing geometry…</div><div id="drop-hint">Drop OBJ or GLB models here</div></div>
+      <div id="viewport" class="viewport"><canvas id="paper" aria-label="Hatching render"></canvas><div id="fly-hint" class="fly-hint" hidden>Free fly · WASD move · Q/E down/up · Shift faster · Scroll speed · Release right mouse to exit</div><div id="loading" class="loading">Preparing geometry…</div><div id="drop-hint">Drop OBJ or GLB models here</div></div>
       <div class="stage-footer"><span id="status" role="status">Preparing the study…</span><div><label><input id="grid" type="checkbox"> Grid</label><button id="reset-camera">Reset view</button></div></div>
     </section>
     <aside class="panel settings-panel" aria-label="Render settings">

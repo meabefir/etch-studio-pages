@@ -106,6 +106,7 @@ function sceneList() {
   $('camera-count').textContent = engine.cameras.length;
   $('add-camera').disabled = engine.cameras.length >= 100;
   $('delete').disabled = !engine.selected || (engine.selected.type === 'camera' && engine.cameras.length === 1);
+  document.querySelectorAll('[data-transform]').forEach(button=>{button.disabled=engine.selected?.type==='light'&&button.dataset.transform!=='translate';button.classList.toggle('active',button.dataset.transform===engine.transform.mode);});
   populateHatchScope();
   refreshSettings();
 }
@@ -209,10 +210,10 @@ async function restoreScene(state) {
     // Only replace the visible scene after every model has been resolved and parsed.
     engine.select(null); for (const entry of [...engine.models, ...engine.lights]) engine.remove(entry);
     engine.params = { ...state.settings }; engine.models = staged; for (const entry of staged) engine.scene.add(entry.object);
-    for (const saved of state.lights) { const entry = engine.addLight(saved.lightType); entry.id = saved.id; entry.name = saved.name; entry.object.position.fromArray(saved.position); entry.target.fromArray(saved.target); entry.intensity = saved.intensity; entry.falloff = saved.falloff; entry.color = saved.color; entry.visible = entry.object.visible = saved.visible; entry.helper.visible = saved.helperVisible; engine.updateLight(entry); }
+    for (const saved of state.lights) { const entry = engine.addLight(saved.lightType); entry.id = saved.id; entry.name = saved.name; entry.object.position.fromArray(saved.position); entry.target.fromArray(saved.target); entry.intensity = saved.intensity; entry.falloff = saved.falloff; entry.color = saved.color; entry.visible = entry.object.visible = saved.visible; entry.helperEnabled = saved.helperVisible; engine.updateLight(entry); }
     const cameras = state.cameras.map(saved => { const entry = engine.addCamera(saved); entry.id = saved.id; return entry; }); engine.cameras = cameras; engine.activateCamera(cameras.find(c => c.id === state.activeCameraId));
     engine.serial = Math.max(engine.serial, ...[...engine.models, ...engine.lights, ...engine.cameras].map(e => Number(e.id.split('-').pop()) || 0));
-    engine.grid.visible = $('grid').checked = state.grid; viewMode(state.mode); setHatchScope(null); sceneList(); selectionPanel(); engine.invalidate(); engine.draw(); engine.schedule();
+    engine.grid.visible = $('grid').checked = state.grid;engine.setLightIconsVisible(state.lightIcons); viewMode(state.mode); setHatchScope(null); sceneList(); selectionPanel(); engine.invalidate(); engine.draw(); engine.schedule();
     // Retain repaired references in the named save without storing model geometry.
     const record = savedScenes.find(s => s.id === selectedSceneId);
     if (record) try { const result = saveNamedScene(localStorage, record.name, snapshotScene(engine)); savedScenes = result.scenes; populateScenes(); } catch { toast('Scene loaded, but its repaired paths could not be saved.'); }
@@ -257,15 +258,20 @@ function selectionPanel() {
     modelExtras(panel, entry);
   } else {
     const factory = lightDefaults[entry.lightType];
-    if (entry.lightType === 'sun') xyz(panel, 'Aim at', entry.target.toArray(), (axis, value) => { entry.target[axis] = value; change(); }, 'target', factory.target);
+    if (entry.lightType === 'sun') {
+      const row=document.createElement('div');row.className='segmented light-edit-modes';row.setAttribute('role','group');row.setAttribute('aria-label','Sun light gizmo');
+      for(const [mode,name]of [['position','Move light'],['aim','Aim light']]){const button=document.createElement('button');button.textContent=name;button.setAttribute('aria-pressed',String(engine.lightEditMode===mode));button.classList.toggle('active',engine.lightEditMode===mode);button.onclick=()=>{engine.setLightEditMode(mode);selectionPanel();};row.append(button);}
+      panel.append(row,resetButton('Sun light gizmo','Aim light',()=>{engine.setLightEditMode('aim');selectionPanel();}));
+      xyz(panel, 'Aim at', entry.target.toArray(), (axis, value) => { entry.target[axis] = value; change(); }, 'target', factory.target);
+    }
     const section = document.createElement('div'); section.className = 'setting-section'; panel.append(section);
     range(section, 'light-intensity', 'Intensity', 0, 5, 0.05, '', entry.intensity, value => { entry.intensity = value; change(); }, factory.intensity);
     if (entry.lightType === 'point') range(section, 'light-falloff', 'Distance falloff', 0, 0.5, 0.005, '', entry.falloff, value => { entry.falloff = value; change(); }, factory.falloff);
     const color = document.createElement('label'); color.className = 'inline-color'; color.append(document.createTextNode('Light color')); const input = document.createElement('input'); input.type = 'color'; input.value = entry.color; input.setAttribute('aria-label', 'Light color'); input.oninput = () => { entry.color = input.value; change(); }; color.append(input); section.append(color);
     attachReset(input, 'Light color', factory.color, () => { input.value = entry.color = factory.color; change(); });
-    const helpers = document.createElement('label'); helpers.className = 'checkbox-row'; const check = document.createElement('input'); check.type = 'checkbox'; check.checked = entry.helper.visible; check.onchange = () => { entry.helper.visible = check.checked; engine.draw(); }; helpers.append(check, document.createTextNode('Show light helper')); panel.append(helpers);
-    attachReset(check, 'Show light helper', 'off', () => { check.checked = entry.helper.visible = false; engine.draw(); });
-    const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = entry.lightType === 'sun' ? 'Position and aim define the sun direction. Distance does not reduce its brightness.' : 'Move the light with the gizmo. Higher falloff reduces illumination with distance.'; panel.append(hint);
+    const helpers = document.createElement('label'); helpers.className = 'checkbox-row'; const check = document.createElement('input'); check.type = 'checkbox'; check.checked = entry.helperEnabled; check.onchange = () => { entry.helperEnabled = check.checked; engine.draw(); }; helpers.append(check, document.createTextNode('Show light helper')); panel.append(helpers);
+    attachReset(check, 'Show light helper', 'off', () => { check.checked = entry.helperEnabled = false; engine.draw(); });
+    const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = entry.lightType === 'sun' ? 'Aim light places the gizmo at the sun’s target. Drag its axes to point the light; Move light changes the source position. The arrow shows its direction.' : 'Move the light with the gizmo. Higher falloff reduces illumination with distance.'; panel.append(hint);
   }
 }
 function refreshSettings() {
@@ -285,7 +291,7 @@ async function loadFiles(files, source = null) {
   }
   importBusy = false; $('import').disabled = false; $('loading').hidden = true; $('file').value = '';
 }
-function transformMode(mode) { engine.setTransform(mode); document.querySelectorAll('[data-transform]').forEach(button => button.classList.toggle('active', button.dataset.transform === mode)); }
+function transformMode(mode) { mode=engine.setTransform(mode); document.querySelectorAll('[data-transform]').forEach(button => button.classList.toggle('active', button.dataset.transform === mode)); }
 function viewMode(mode) { engine.setMode(mode); document.querySelectorAll('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === mode)); }
 
 async function init() {
@@ -299,6 +305,10 @@ async function init() {
   engine.addEventListener('camera-change', () => { syncTransform(); if (engine.selected?.type === 'camera') for (const [key, control] of cameraControls) if (document.activeElement !== control.input) control.update(engine.selected[key]); });
   engine.addEventListener('error', e => { toast(e.detail); $('status').textContent = 'Render failed'; $('loading').hidden = true; });
   engine.addEventListener('notice', e => toast(e.detail));
+  const syncLightIcons=()=>{$('light-icons').setAttribute('aria-pressed',String(engine.showLightIcons));};
+  engine.addEventListener('light-visuals',syncLightIcons);$('light-icons').onclick=()=>{engine.setLightIconsVisible(!engine.showLightIcons);};syncLightIcons();
+  $('light-icons').after(resetButton('Light icons','on',()=>engine.setLightIconsVisible(true)));
+  engine.addEventListener('navigation',e=>{$('fly-hint').hidden=!e.detail;});
   engine.addEventListener('rendering', () => { $('status').textContent = 'Tracing surface lines…'; });
   engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
   try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
@@ -350,7 +360,7 @@ async function init() {
   $('export').onclick = () => { try { const canvas = engine.exportPNG(); canvas.toBlob(blob => { if (!blob) return toast('The image could not be exported.'); if (exportURL) URL.revokeObjectURL(exportURL); exportURL = URL.createObjectURL(blob); $('export-image').src = exportURL; $('download-image').href = exportURL; $('export-size').textContent = `${canvas.width} × ${canvas.height} px`; $('export-dialog').showModal(); }, 'image/png'); } catch (e) { toast(e.message); } };
   $('close-export').onclick = () => $('export-dialog').close();
   document.addEventListener('keydown', e => {
-    if (document.querySelector('dialog[open]') || e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (engine.navigation.active || document.querySelector('dialog[open]') || e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toLowerCase();
     if (['delete', 'backspace', 'f', 'w', 'e', 'r', 'escape', '1', '2'].includes(key)) e.preventDefault();
     if (key === 'delete' || key === 'backspace') engine.remove();

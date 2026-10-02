@@ -8,6 +8,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { defaults, lightDefaults } from './settings.js';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js';
 import { starterSigil, validateSigil } from './sigil-data.js';
+import { configureOrbit, FlyNavigation } from './navigation.js';
+import { LightVisuals } from './light-visuals.js';
 export { defaults } from './settings.js';
 
 const vertexShader = `
@@ -58,7 +60,7 @@ export class EtchEngine extends EventTarget {
   constructor(container, paperCanvas) {
     super(); this.container = container; this.paperCanvas = paperCanvas;
     this.params = { ...defaults }; this.models = []; this.lights = []; this.cameras = []; this.selected = null;
-    this.mode = 'hatch'; this.serial = 0; this.revision = 0; this.busy = false; this.dirty = true;
+    this.mode = 'hatch'; this.serial = 0; this.revision = 0; this.busy = false; this.dirty = true; this.showLightIcons=true; this.lightEditMode='aim';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); this.renderer.setClearColor(0xffffff, 0);
     this.renderer.domElement.setAttribute('aria-label', '3D model viewport');
@@ -71,10 +73,19 @@ export class EtchEngine extends EventTarget {
     this.transform = new TransformControls(this.camera, this.renderer.domElement); this.transform.setSize(0.82);
     this.overlay.add(this.transform.getHelper());
     this.transform.addEventListener('dragging-changed', e => { this.orbit.enabled = !e.value; this.interacting = e.value; if (e.value) this.invalidate(); else this.schedule(); });
-    this.transform.addEventListener('objectChange', () => { this.emit('transform'); this.invalidate(); this.draw(); });
+    this.transform.addEventListener('objectChange', () => {
+      if(this.selected?.type==='light'){if(this.selected.lightType==='sun'&&this.lightEditMode==='aim')this.selected.target.copy(this.selected.aimObject.position);this.updateLight(this.selected);}
+      this.emit('transform'); this.invalidate(); this.draw();
+    });
     this.transform.addEventListener('change', () => this.draw());
     const originalPointer = this.transform._getPointer;
     this.transform._getPointer = event => { const pointer = originalPointer(event), mapped = this.viewPointer(pointer.x, pointer.y); return { ...pointer, x: mapped?.[0] ?? 10, y: mapped?.[1] ?? 10 }; };
+    this.navigation = new FlyNavigation(this.renderer.domElement, {
+      camera:()=>this.camera, orbit:()=>this.orbit, canStart:()=>!this.transform.dragging&&!document.querySelector('dialog[open]'),
+      onStart:()=>{this.transform.enabled=false;this.interacting=true;this.invalidate();this.draw();this.emit('navigation',true);},
+      onChange:()=>{this.activeCamera.target.copy(this.orbit.target);this.emit('camera-change');this.invalidate();this.draw();},
+      onEnd:()=>{this.transform.enabled=true;this.interacting=false;this.schedule();this.emit('navigation',false);}
+    });
     this.ambientLight = new THREE.AmbientLight(0xffffff, this.params.ambient); this.scene.add(this.ambientLight);
     this.box = new THREE.Box3Helper(new THREE.Box3(), 0xc77c43); this.overlay.add(this.box); this.box.visible = false;
     this.grid = new THREE.GridHelper(12, 24, 0xb8bdc7, 0xdce0e7); this.grid.position.y = -2.3; this.grid.visible = false; this.overlay.add(this.grid);
@@ -86,7 +97,9 @@ export class EtchEngine extends EventTarget {
       const r = this.renderer.domElement.getBoundingClientRect(); this.pointer.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
       const mapped = this.viewPointer(this.pointer.x, this.pointer.y); if (!mapped) return; this.pointer.set(...mapped);
       this.raycaster.setFromCamera(this.pointer, this.camera);
-      const hit = this.raycaster.intersectObjects(this.models.map(x => x.object), true)[0];
+      this.overlay.updateMatrixWorld(true);
+      const lightHit=this.raycaster.intersectObjects(this.lights.flatMap(x=>[x.visuals.icon,x.visuals.target]).filter(x=>x.visible))[0];
+      const hit = lightHit || this.raycaster.intersectObjects(this.models.filter(x=>x.visible).map(x => x.object), true)[0];
       let object = hit?.object; while (object && !object.userData.entry) object = object.parent;
       this.select(object?.userData.entry || null);
     });
@@ -111,7 +124,9 @@ export class EtchEngine extends EventTarget {
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   bindOrbit() {
+    this.navigation?.stop();
     this.orbit?.dispose(); this.orbit = new OrbitControls(this.camera, this.renderer.domElement); this.orbit.target.copy(this.activeCamera.target); this.orbit.enableDamping = false; this.orbit.update();
+    configureOrbit(this.orbit);
     if (this.camera.isOrthographicCamera) { const height = this.camera.top - this.camera.bottom; this.orbit.minZoom = height / 2000; this.orbit.maxZoom = height / .1; }
     this.orbit.addEventListener('start', () => { this.interacting = true; this.invalidate(); this.draw(); });
     this.orbit.addEventListener('change', () => { this.activeCamera.target.copy(this.orbit.target); this.activeCamera.orthoSize = this.camera.isOrthographicCamera ? (this.camera.top - this.camera.bottom) / this.camera.zoom : this.activeCamera.orthoSize; this.emit('camera-change'); this.invalidate(); this.draw(); });
@@ -196,6 +211,8 @@ export class EtchEngine extends EventTarget {
   draw() {
     if (!this.renderer) return;
     this.updateLensCamera();
+    this.camera.updateMatrixWorld(true);
+    for(const light of this.lights){light.visuals.update(this.camera,Math.max(1,this.container.clientHeight),this.showLightIcons,this.selected===light,this.lightEditMode==='aim');light.helper.visible=this.showLightIcons&&light.visible&&light.helperEnabled;}
     this.ambientLight.intensity = this.params.ambient;
     if (['model','sigil'].includes(this.selected?.type)) { this.box.box.setFromObject(this.selected.object); this.box.visible = true; } else this.box.visible = false;
     const showSolid = this.mode === 'solid' || !this.ready;
@@ -204,8 +221,16 @@ export class EtchEngine extends EventTarget {
   }
   setParams(patch) { Object.assign(this.params, patch); this.invalidate(); this.draw(); this.schedule(); }
   setMode(mode) { this.mode = mode; this.draw(); if (mode === 'hatch') this.schedule(); }
-  setTransform(mode) { this.transform.setMode(mode); this.draw(); }
-  select(entry) { if (entry?.type === 'camera') this.activateCamera(entry); this.selected = entry; entry && entry.type !== 'camera' ? this.transform.attach(entry.object) : this.transform.detach(); this.draw(); this.emit('selection', entry); }
+  setTransform(mode) { if(this.selected?.type==='light')mode='translate';this.transform.setMode(mode);this.draw();return mode; }
+  setLightIconsVisible(visible) { this.showLightIcons=Boolean(visible);this.draw();this.emit('light-visuals'); }
+  setLightEditMode(mode) { this.lightEditMode=mode==='position'?'position':'aim';this.attachSelection();this.draw();this.emit('light-edit'); }
+  attachSelection() {
+    const entry=this.selected;
+    if(!entry||entry.type==='camera'){this.transform.detach();return;}
+    if(entry.type==='light')this.transform.setMode('translate');
+    this.transform.attach(entry.type==='light'&&entry.lightType==='sun'&&this.lightEditMode==='aim'?entry.aimObject:entry.object);
+  }
+  select(entry) { this.navigation?.stop();if (entry?.type === 'camera') this.activateCamera(entry); this.selected = entry;if(entry?.type==='light')this.lightEditMode=entry.lightType==='sun'?'aim':'position';this.attachSelection();this.draw();this.emit('selection', entry); }
   styleFor(entry) { return entry.hatch ? { ...this.params, ...entry.hatch, quality: this.params.quality } : this.params; }
   setObjectParams(entry, patch) { entry.hatch = { ...this.styleFor(entry), ...patch }; this.invalidate(); this.draw(); this.schedule(); }
   async prepare(geometry) {
@@ -291,12 +316,13 @@ export class EtchEngine extends EventTarget {
     object.position.fromArray(lightDefaults[type].position); this.scene.add(object);
     const helper = type === 'sun' ? new THREE.DirectionalLightHelper(object, 0.4, 0xc9954f) : new THREE.PointLightHelper(object, 0.15, 0xc9954f);
     this.overlay.add(helper); helper.visible = false;
-    const entry = { id: `light-${++this.serial}`, type: 'light', lightType: type, name: type === 'sun' ? 'Sun light' : 'Point light', object, helper, intensity: lightDefaults[type].intensity, falloff: lightDefaults[type].falloff, target: new THREE.Vector3(), color: lightDefaults[type].color, visible: true };
+    const entry = { id: `light-${++this.serial}`, type: 'light', lightType: type, name: type === 'sun' ? 'Sun light' : 'Point light', object, helper, helperEnabled:false, aimObject:new THREE.Object3D(), intensity: lightDefaults[type].intensity, falloff: lightDefaults[type].falloff, target: new THREE.Vector3(), color: lightDefaults[type].color, visible: true };
+    entry.aimObject.userData.entry=entry;this.overlay.add(entry.aimObject);entry.visuals=new LightVisuals(entry);this.overlay.add(entry.visuals.object);
     this.lights.push(entry); this.updateLight(entry); this.emit('scene'); return entry;
   }
   updateLight(entry) {
     entry.object.color.set(entry.color); entry.object.intensity = entry.lightType === 'sun' ? entry.intensity : entry.intensity * 10;
-    if (entry.lightType === 'sun') { entry.object.target.position.copy(entry.target); if (!entry.object.target.parent) this.scene.add(entry.object.target); }
+    if (entry.lightType === 'sun') { entry.object.target.position.copy(entry.target);entry.aimObject.position.copy(entry.target);if (!entry.object.target.parent) this.scene.add(entry.object.target); }
     entry.helper.update(); this.invalidate(); this.draw(); this.schedule();
   }
   setVisible(entry, visible) { entry.visible = visible; entry.object.visible = visible; if (!visible && this.selected === entry) this.select(null); this.invalidate(); this.emit('scene'); this.draw(); this.schedule(); }
@@ -310,12 +336,15 @@ export class EtchEngine extends EventTarget {
     if (this.selected === entry) this.select(null);
     this.scene.remove(entry.object);
     if (['model','sigil'].includes(entry.type)) { this.models = this.models.filter(x => x !== entry); entry.object.traverse(mesh => { mesh.geometry?.dispose(); mesh.material?.dispose(); mesh.userData.fieldMaterial?.dispose(); }); }
-    else { this.lights = this.lights.filter(x => x !== entry); this.scene.remove(entry.object.target); this.overlay.remove(entry.helper); entry.helper.dispose(); }
+    else { this.lights = this.lights.filter(x => x !== entry); this.scene.remove(entry.object.target);this.overlay.remove(entry.helper,entry.aimObject,entry.visuals.object);entry.helper.dispose();entry.visuals.dispose(); }
     this.invalidate(); this.emit('scene'); this.draw(); this.schedule();
   }
   frame(entry = this.selected) {
     const box = new THREE.Box3();
-    if (['model','sigil'].includes(entry?.type)) box.setFromObject(entry.object); else for (const model of this.models) if (model.visible) box.expandByObject(model.object);
+    if (['model','sigil'].includes(entry?.type)) box.setFromObject(entry.object); else {
+      for (const model of this.models) if (model.visible) box.expandByObject(model.object);
+      if(entry?.type==='light'){box.expandByPoint(entry.object.position);if(entry.lightType==='sun')box.expandByPoint(entry.target);else box.expandByPoint(entry.object.position.clone().addScalar(.5));}
+    }
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     const radius = size.length() * 0.5, tan = Math.tan(THREE.MathUtils.degToRad((this.camera.fov || 35) / 2));
