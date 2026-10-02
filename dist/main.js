@@ -309,7 +309,7 @@ function viewMode(mode) { engine.setMode(mode); document.querySelectorAll('[data
 
 async function init() {
   try { engine = new EtchEngine($('viewport'), $('paper')); } catch (e) { $('loading').textContent = 'WebGL 2 is required. Open this app in an updated browser with graphics acceleration enabled.'; toast(e.message); return; }
-  toonEditor=new ToonEditor($('toon-settings'),{getStyle:toonParams,getOverride:()=>toonTarget?{custom:!!toonTarget.toon}:null,onCustom:enabled=>{if(!toonTarget)return;engine.setObjectToon(toonTarget,enabled?engine.params:null);populateHatchScope();refreshSettings();},onChange:changeToon,onScope:id=>setToonScope(engine.models.find(e=>e.id===id)||null),resetButton});
+  toonEditor=new ToonEditor($('toon-settings'),{getStyle:toonParams,getOverride:()=>toonTarget?{custom:!!toonTarget.toon}:null,onCustom:enabled=>{if(!toonTarget)return;engine.setObjectToon(toonTarget,enabled?engine.params:null);populateHatchScope();refreshSettings();},onChange:changeToon,onScope:id=>setToonScope(engine.models.find(e=>e.id===id)||null),resetButton,onMessage:toast});
   try { savedPresets = readSavedPresets(localStorage); } catch (e) { toast(e.message || 'Browser storage is unavailable.'); }
   populatePresets();
   for (const [parent, key, name, min, max, step, suffix] of definitions) controls.set(key, range($(parent), key, name, min, max, step, suffix, engine.params[key], value => applyHatchPatch({ [key]: value }), defaults[key]));
