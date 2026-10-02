@@ -5,7 +5,7 @@
   <title>Etch · Hatching Studio</title>
   <meta name="description" content="Turn 3D geometry into flowing linework. A screen-space hatching studio for OBJ and GLB models.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171b22'/%3E%3Cpath d='M8 23L18 7M14 25L24 9M7 15L11 8M22 24L25 19' stroke='%23e0a76b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./sigil.css">
   <script type="importmap">{"imports":{"three":"./vendor/build/three.module.js","three/addons/":"./vendor/addons/"}}</script>
   <script type="module" src="./main.js"></script>
 </head>
@@ -19,10 +19,12 @@
     <aside class="panel scene-panel" aria-label="Scene">
       <div class="panel-title"><h1>Scene</h1><span id="scene-count" class="meta">1 object</span></div>
       <div class="scene-storage"><label for="saved-scene">Saved scenes</label><select id="saved-scene" aria-label="Saved scenes"></select><div class="row"><button id="load-scene" class="button subtle">Load scene</button><button id="save-scene" class="button">Save scene</button></div></div>
+      <label class="add-object-label" for="add-object-type">Add object</label><select id="add-object-type"><option value="">Choose object type…</option><option value="sigil">Nature / cyber sigil</option><option value="model">OBJ / GLB model</option><option value="sphere">Sphere study</option><option value="vessel">Vessel study</option><option value="knot">Knot study</option></select>
       <div class="section-caption">MODELS</div>
       <div id="model-list" class="scene-list"></div>
       <button id="import-secondary" class="button subtle full">Import OBJ / GLB</button>
       <details class="demo-picker"><summary>Add a study shape</summary><div class="row"><button data-demo="knot">Knot</button><button data-demo="sphere">Sphere</button><button data-demo="vessel">Vessel</button></div></details>
+      <div class="section-caption light-caption">SIGILS</div><div id="sigil-list" class="scene-list"></div><button id="add-sigil" class="button subtle full">＋ Add sigil</button>
       <div class="section-caption light-caption">LIGHTS <span id="light-count"></span></div>
       <div id="light-list" class="scene-list"></div>
       <div class="row add-lights"><button id="add-sun" class="button subtle">☼ Sun</button><button id="add-point" class="button subtle">◉ Point</button></div>
@@ -54,7 +56,7 @@
   </main>
   <dialog id="export-dialog" aria-labelledby="export-title"><div class="export-title"><h2 id="export-title">Render preview</h2><button id="close-export" aria-label="Close render preview">✕</button></div><img id="export-image" alt="Rendered hatching illustration"><div class="export-footer"><span id="export-size"></span><a id="download-image" class="button accent" download="etch-render.png">Download PNG</a></div></dialog>
   <dialog id="save-preset-dialog" aria-labelledby="save-preset-title"><form id="save-preset-form"><h2 id="save-preset-title">Save hatching preset</h2><label for="preset-name">Preset name</label><input id="preset-name" type="text" maxlength="60" required placeholder="e.g. Dark ink study" autocomplete="off"><p class="hint">Saved in this browser. Saving with an existing name updates that preset.</p><div class="dialog-actions"><button id="cancel-save-preset" type="button" class="button subtle">Cancel</button><button type="submit" class="button accent">Save</button></div></form></dialog>
-  <dialog id="save-scene-dialog" class="form-dialog" aria-labelledby="save-scene-title"><form id="save-scene-form"><h2 id="save-scene-title">Save scene</h2><label for="scene-name">Scene name</label><input id="scene-name" maxlength="100" required autocomplete="off"><p class="hint">Stored in this browser. Includes cameras, lights, transforms and hatching styles. Model geometry is kept in its original local file.</p><div class="dialog-actions"><button id="cancel-save-scene" type="button" class="button subtle">Cancel</button><button class="button accent" type="submit">Save</button></div></form></dialog>
+  <dialog id="save-scene-dialog" class="form-dialog" aria-labelledby="save-scene-title"><form id="save-scene-form"><h2 id="save-scene-title">Save scene</h2><label for="scene-name">Scene name</label><input id="scene-name" maxlength="100" required autocomplete="off"><p class="hint">Stored in this browser. Includes cameras, lights, transforms, hatching styles and editable sigil curves. Imported models stay in their original local files.</p><div class="dialog-actions"><button id="cancel-save-scene" type="button" class="button subtle">Cancel</button><button class="button accent" type="submit">Save</button></div></form></dialog>
   <dialog id="model-path-dialog" class="form-dialog" aria-labelledby="model-path-title"><form id="model-path-form"><h2 id="model-path-title">Local model file</h2><p id="model-path-description" class="hint"></p><label for="model-path-input">Full model file path</label><input id="model-path-input" type="text" autocomplete="off" placeholder="C:\Models\sculpture.glb"><p id="model-path-error" class="inline-error" role="alert" hidden></p><p id="path-service-hint" class="hint">The local server opens OBJ and GLB files directly from this path.</p><div class="dialog-actions"><button id="cancel-model-path" class="button subtle" type="button">Cancel</button><button id="browse-model-path" class="button" type="button">Browse file</button><button id="confirm-model-path" class="button accent" type="submit">Use path</button></div></form><input id="relink-file" type="file" accept=".obj,.glb" hidden></dialog>
   <div id="toast" class="toast" role="alert" hidden></div>
 </body>

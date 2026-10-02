@@ -1,6 +1,8 @@
+import { registerBrowserTools } from './browser-tools.js';
 import { EtchEngine } from './engine.js';
 import { defaults, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
+import { starterSigil } from './sigil-data.js';
 import { cameraDefaults, projections } from './lenses.js';
 import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js';
 
@@ -11,6 +13,13 @@ function tab(which) { const hatch = which === 'hatch'; $('hatch-settings').hidde
 const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
+let sigilEditor;
+async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
+async function addSigil() {
+  if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
+  try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }
+}
+
 const hatchParams = () => hatchTarget ? engine.styleFor(hatchTarget) : engine.params;
 function setHatch(patch) { if (hatchTarget) engine.setObjectParams(hatchTarget, patch); else engine.setParams(patch); }
 function populateHatchScope() {
@@ -77,18 +86,18 @@ function range(parent, key, name, min, max, step, suffix, value, callback, defau
   labelRow.append(label, actions); wrap.append(labelRow, input); parent.append(wrap); return { input, update, wrap };
 }
 function sceneList() {
-  for (const [list, entries] of [[$('model-list'), engine.models], [$('light-list'), engine.lights], [$('camera-list'), engine.cameras]]) {
+  for (const [list, entries] of [[$('model-list'), engine.models.filter(e=>e.type==='model')], [$('sigil-list'), engine.models.filter(e=>e.type==='sigil')], [$('light-list'), engine.lights], [$('camera-list'), engine.cameras]]) {
     list.replaceChildren();
-    if (!entries.length) { const empty = document.createElement('div'); empty.className = 'hint'; empty.textContent = list.id === 'model-list' ? 'Import a model to begin.' : 'Add a sun or point light.'; list.append(empty); }
+    if (!entries.length) { const empty = document.createElement('div'); empty.className = 'hint'; empty.textContent = list.id === 'model-list' ? 'Import a model to begin.' : list.id === 'sigil-list' ? 'Grow a curve-based sigil.' : 'Add a sun or point light.'; list.append(empty); }
     for (const entry of entries) {
       const row = document.createElement('div'); row.className = `scene-item${engine.selected === entry ? ' selected' : ''}`;
       const select = document.createElement('button'); select.className = 'select-item'; select.title = entry.name; select.setAttribute('aria-label', `Select ${entry.name}`);
-      const icon = document.createElement('span'); icon.className = 'object-icon'; icon.textContent = entry.type === 'model' ? '◇' : entry.type === 'camera' ? '▣' : entry.lightType === 'sun' ? '☼' : '◉';
+      const icon = document.createElement('span'); icon.className = 'object-icon'; icon.textContent = entry.type === 'model' ? '◇' : entry.type === 'sigil' ? '❧' : entry.type === 'camera' ? '▣' : entry.lightType === 'sun' ? '☼' : '◉';
       const name = document.createElement('span'); name.className = 'item-name'; name.textContent = entry.name + (entry === engine.activeCamera ? ' · active' : '');
       select.append(icon, name); select.onclick = () => { engine.select(entry); tab('selection'); };
       const visibility = document.createElement('button'); visibility.className = 'visibility'; visibility.textContent = entry.visible ? '◉' : '○'; visibility.title = entry.visible ? 'Hide' : 'Show'; visibility.setAttribute('aria-label', `${entry.visible ? 'Hide' : 'Show'} ${entry.name}`); visibility.setAttribute('aria-pressed', String(entry.visible)); visibility.onclick = () => engine.setVisible(entry, !entry.visible);
       if (entry.type === 'camera') { row.append(select); list.append(row); continue; }
-      row.append(select, visibility, resetButton(`${entry.name} visibility`, 'visible', () => engine.setVisible(entry, true))); list.append(row);
+      if (entry.type === 'sigil') { const edit = document.createElement('button'); edit.className='property-reset sigil-edit-button'; edit.textContent='✎'; edit.title='Edit curves & generated mesh'; edit.setAttribute('aria-label',`Edit ${entry.name} curves`); edit.onclick=()=>editSigil(entry); row.append(select,edit,visibility); } else row.append(select,visibility); row.append(resetButton(`${entry.name} visibility`, 'visible', () => engine.setVisible(entry, true))); list.append(row);
     }
   }
   $('scene-count').textContent = `${engine.models.length} ${engine.models.length === 1 ? 'object' : 'objects'}`;
@@ -183,7 +192,8 @@ async function restoreScene(state) {
   try {
     for (const saved of state.models) {
       $('loading').textContent = `Loading ${saved.name}…`; let entry;
-      if (saved.source.kind === 'demo') entry = await engine.demo(saved.source.shape, false);
+      if (saved.source.kind === 'sigil') entry = await engine.createSigil(saved.source.design, saved.name, false);
+      else if (saved.source.kind === 'demo') entry = await engine.demo(saved.source.shape, false);
       else {
         let file, source = { ...saved.source }, error;
         if (localPaths && source.path) try { file = await localModel(source.path); } catch (e) { error = e.message; }
@@ -233,16 +243,17 @@ function selectionPanel() {
   const panel = $('selection-settings'); panel.replaceChildren(); transformInputs.length = 0; cameraControls.clear();
   const entry = engine.selected;
   if (!entry) { panel.innerHTML = '<div class="empty-selection"><strong>No object selected</strong>Click a model in the drawing or select an item in the scene.</div>'; return; }
-  const title = document.createElement('div'); title.className = 'selection-name'; title.textContent = entry.name; const meta = document.createElement('div'); meta.className = 'selection-meta'; meta.textContent = entry.type === 'model' ? `${entry.triangles.toLocaleString()} triangles · geometry only` : entry.type === 'camera' ? 'Active view · navigation updates this camera' : entry.lightType === 'sun' ? 'Directional light · infinite distance' : 'Point light · local illumination'; panel.append(title, meta);
+  const title = document.createElement('div'); title.className = 'selection-name'; title.textContent = entry.name; const meta = document.createElement('div'); meta.className = 'selection-meta'; meta.textContent = ['model','sigil'].includes(entry.type) ? `${entry.triangles.toLocaleString()} triangles · ${entry.type === 'sigil' ? 'procedural sigil' : 'geometry only'}` : entry.type === 'camera' ? 'Active view · navigation updates this camera' : entry.lightType === 'sun' ? 'Directional light · infinite distance' : 'Point light · local illumination'; panel.append(title, meta);
   if (entry.type === 'camera') { cameraPanel(panel, entry); return; }
   const change = () => { if (entry.type === 'light') engine.updateLight(entry); else { engine.invalidate(); engine.draw(); engine.schedule(); } syncTransform(); };
   xyz(panel, 'Position', entry.object.position.toArray(), (axis, value) => { entry.object.position[axis] = value; change(); }, 'position', entry.type === 'light' ? lightDefaults[entry.lightType].position : [0, 0, 0]);
-  if (entry.type === 'model') {
+  if (['model','sigil'].includes(entry.type)) {
     xyz(panel, 'Rotation (°)', [entry.object.rotation.x, entry.object.rotation.y, entry.object.rotation.z].map(x => x * 180 / Math.PI), (axis, value) => { entry.object.rotation[axis] = value * Math.PI / 180; change(); }, 'rotation', [0, 0, 0]);
     const scaleSection = xyz(panel, 'Scale', entry.object.scale.toArray(), (axis, value) => { if ($('uniform-scale').checked) { const ratio = value / entry.object.scale[axis]; entry.object.scale.multiplyScalar(ratio); } else entry.object.scale[axis] = value; change(); }, 'scale', [1, 1, 1], (axis, value) => { entry.object.scale[axis] = value; change(); });
     const uniform = document.createElement('label'); uniform.className = 'uniform'; uniform.innerHTML = '<input type="checkbox" id="uniform-scale" checked> Link scale axes'; scaleSection.append(uniform);
     attachReset($('uniform-scale'), 'Link scale axes', 'on', () => { $('uniform-scale').checked = true; });
     const reset = document.createElement('button'); reset.className = 'button subtle full'; reset.textContent = 'Reset transform'; reset.onclick = () => { entry.object.position.set(0, 0, 0); entry.object.rotation.set(0, 0, 0); entry.object.scale.set(1, 1, 1); change(); }; panel.append(reset);
+    if (entry.type === 'sigil') { const edit=document.createElement('button');edit.className='button accent full';edit.textContent='Edit curves & mesh';edit.onclick=()=>editSigil(entry);panel.append(edit); }
     modelExtras(panel, entry);
   } else {
     const factory = lightDefaults[entry.lightType];
@@ -293,6 +304,8 @@ async function init() {
   try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
   try { savedScenes = readSavedScenes(localStorage); } catch (e) { toast(e.message); } populateScenes();
   setupSceneStorage();
+  $('add-sigil').onclick=addSigil;
+  $('add-object-type').onchange=async()=>{const type=$('add-object-type').value;$('add-object-type').value='';if(type==='sigil')await addSigil();else if(type==='model')$('import').click();else if(type){try{const entry=await engine.demo(type);engine.select(entry);engine.frame(entry);tab('selection');}catch(e){toast(e.message);}}};
   $('import').onclick = $('import-secondary').onclick = async () => { if (!localPaths) return $('file').click(); const result = await requestModelPath({ title: 'Import model', description: 'Enter a full local file path to enable automatic scene reloading, or browse and enter the path when saving.', browse: 'import' }); if (result?.file) await loadFiles([result.file], result.source); };  $('file').onchange = () => loadFiles([...$('file').files]);
   $('add-camera').onclick = () => { engine.select(engine.addCamera()); tab('selection'); };
   $('hatch-scope').onchange = () => { const entry = engine.models.find(e => e.id === $('hatch-scope').value); if (entry && !entry.hatch) engine.setObjectParams(entry, { ...engine.params }); setHatchScope(entry || null); };
@@ -354,15 +367,6 @@ async function init() {
   engine.addLight('sun');
   try { await engine.demo(); engine.frame(null); engine.select(null); } catch (e) { toast(e.message); $('loading').hidden = true; }
   sceneList();
-  // Browser-agent access mirrors the existing controls and is optional by support.
-  if (document.modelContext?.registerTool) {
-    const lifecycle = new AbortController();
-    const tools = [
-      { name: 'read_etch_scene', title: 'Read scene', description: 'Read models, their hatching styles, lights, cameras and global settings.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true }, execute: () => ({ models: engine.models.map(x => ({ id: x.id, name: x.name, triangles: x.triangles, hatch: x.hatch || null, source: x.source, position: x.object.position.toArray() })), lights: engine.lights.map(x => ({ id: x.id, type: x.lightType, intensity: x.intensity })), cameras: engine.cameras.map(e => engine.cameraSnapshot(e)), activeCameraId: engine.activeCamera.id, settings: { ...engine.params } }) },
-      { name: 'configure_hatch_spacing', title: 'Set hatch spacing', description: 'Set global shadow and light line spacing in screen pixels, using the same controls as the inspector.', inputSchema: { type: 'object', properties: { shadow: { type: 'number', minimum: 2, maximum: 16 }, light: { type: 'number', minimum: 6, maximum: 60 } }, required: ['shadow', 'light'], additionalProperties: false }, execute: input => { if (!input || !Number.isFinite(input.shadow) || !Number.isFinite(input.light) || input.shadow < 2 || input.shadow > 16 || input.light < 6 || input.light > 60 || input.shadow > input.light) throw new Error('Enter valid spacing with shadow no greater than light.'); engine.setParams({ spacing: input.shadow, lightSpacing: input.light }); refreshSettings(); return { shadow: engine.params.spacing, light: engine.params.lightSpacing }; } }
-    ];
-    for (const tool of tools) try { Promise.resolve(document.modelContext.registerTool(tool, { signal: lifecycle.signal })).catch(() => {}); } catch {}
-    window.addEventListener('pagehide', () => lifecycle.abort(), { once: true });
-  }
+  registerBrowserTools(engine, refreshSettings);
 }
 init();

@@ -7,6 +7,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { defaults, lightDefaults } from './settings.js';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js';
+import { starterSigil, validateSigil } from './sigil-data.js';
 export { defaults } from './settings.js';
 
 const vertexShader = `
@@ -196,7 +197,7 @@ export class EtchEngine extends EventTarget {
     if (!this.renderer) return;
     this.updateLensCamera();
     this.ambientLight.intensity = this.params.ambient;
-    if (this.selected?.type === 'model') { this.box.box.setFromObject(this.selected.object); this.box.visible = true; } else this.box.visible = false;
+    if (['model','sigil'].includes(this.selected?.type)) { this.box.box.setFromObject(this.selected.object); this.box.visible = true; } else this.box.visible = false;
     const showSolid = this.mode === 'solid' || !this.ready;
     this.paperCanvas.style.visibility = showSolid ? 'hidden' : 'visible';
     this.renderView(showSolid);
@@ -250,6 +251,26 @@ export class EtchEngine extends EventTarget {
     else { geometry = new THREE.TorusKnotGeometry(1.15, 0.38, 280, 40, 2, 3); geometry.rotateX(Math.PI * 0.16); name = 'Twisted form'; }
     const entry = await this.addModel(new THREE.Mesh(geometry), name, true, register); geometry.dispose(); entry.source = { kind: 'demo', shape: kind }; return entry;
   }
+  async createSigil(design = starterSigil(), name = 'Nature sigil', register = true, mesh = null) {
+    design = validateSigil(design);
+    if (!mesh) mesh = await new Promise((resolve,reject) => {
+      const worker = new Worker(new URL('./sigil-worker.js', import.meta.url), { type:'module' });
+      worker.onmessage = ({data}) => { if (data.error || data.mesh) { worker.terminate(); data.error ? reject(new Error(data.error)) : resolve(data.mesh); } };
+      worker.onerror = e => { worker.terminate(); reject(new Error(e.message)); }; worker.postMessage({id:1,design});
+    });
+    const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(mesh.position,3)); geometry.setAttribute('normal',new THREE.BufferAttribute(mesh.normal,3)); geometry.setIndex(new THREE.BufferAttribute(mesh.index,1));
+    const root=new THREE.Mesh(geometry);let entry;
+    try { entry=await this.addModel(root,name,false,register); } finally { geometry.dispose();root.material.dispose(); }
+    entry.type='sigil'; entry.source={kind:'sigil',design};
+    entry.object.traverse(node => { if (node.isMesh) { node.material.color.set(design.settings.color); node.material.metalness=design.settings.metalness; node.material.roughness=design.settings.roughness; } });
+    if (register) { this.emit('scene'); this.invalidate(); this.draw(); this.schedule(); } return entry;
+  }
+  async updateSigil(entry, design, mesh) {
+    const replacement = await this.createSigil(design,entry.name,false,mesh);
+    for (const child of [...entry.object.children]) { entry.object.remove(child); child.traverse(node=>{node.geometry?.dispose();node.material?.dispose();node.userData.fieldMaterial?.dispose();}); }
+    for (const child of [...replacement.object.children]) entry.object.add(child);
+    entry.source=replacement.source;entry.triangles=replacement.triangles;this.invalidate();this.emit('scene');this.emit('selection',entry);this.draw();this.schedule();
+  }
   async load(file, { register = true, source = null } = {}) {
     const ext = file.name.split('.').pop().toLowerCase(); let root;
     if (ext === 'obj') root = new OBJLoader().parse(await file.text());
@@ -288,13 +309,13 @@ export class EtchEngine extends EventTarget {
     }
     if (this.selected === entry) this.select(null);
     this.scene.remove(entry.object);
-    if (entry.type === 'model') { this.models = this.models.filter(x => x !== entry); entry.object.traverse(mesh => { mesh.geometry?.dispose(); mesh.material?.dispose(); mesh.userData.fieldMaterial?.dispose(); }); }
+    if (['model','sigil'].includes(entry.type)) { this.models = this.models.filter(x => x !== entry); entry.object.traverse(mesh => { mesh.geometry?.dispose(); mesh.material?.dispose(); mesh.userData.fieldMaterial?.dispose(); }); }
     else { this.lights = this.lights.filter(x => x !== entry); this.scene.remove(entry.object.target); this.overlay.remove(entry.helper); entry.helper.dispose(); }
     this.invalidate(); this.emit('scene'); this.draw(); this.schedule();
   }
   frame(entry = this.selected) {
     const box = new THREE.Box3();
-    if (entry?.type === 'model') box.setFromObject(entry.object); else for (const model of this.models) if (model.visible) box.expandByObject(model.object);
+    if (['model','sigil'].includes(entry?.type)) box.setFromObject(entry.object); else for (const model of this.models) if (model.visible) box.expandByObject(model.object);
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     const radius = size.length() * 0.5, tan = Math.tan(THREE.MathUtils.degToRad((this.camera.fov || 35) / 2));
@@ -306,7 +327,7 @@ export class EtchEngine extends EventTarget {
     }
     distance = Math.max(0.1, distance * 1.1);
     if (this.activeCamera.projection === 'fisheye') {
-      let sphereRadius = 0; for (const model of this.models) if (model.visible && (!entry || entry.type !== 'model' || entry === model)) model.object.traverse(mesh => { if (!mesh.isMesh) return; mesh.updateWorldMatrix(true, false); if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere(); const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld); sphereRadius = Math.max(sphereRadius, sphere.center.distanceTo(center) + sphere.radius); });
+      let sphereRadius = 0; for (const model of this.models) if (model.visible && (!entry || !['model','sigil'].includes(entry.type) || entry === model)) model.object.traverse(mesh => { if (!mesh.isMesh) return; mesh.updateWorldMatrix(true, false); if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere(); const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld); sphereRadius = Math.max(sphereRadius, sphere.center.distanceTo(center) + sphere.radius); });
       distance = Math.max(.1, sphereRadius / Math.sin(THREE.MathUtils.degToRad(this.activeCamera.fov * .38)) * 1.04);
     }
     if (this.camera.isOrthographicCamera) {

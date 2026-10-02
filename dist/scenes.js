@@ -1,5 +1,6 @@
 import { validateSettings } from './settings.js';
 import { projections } from './lenses.js';
+import { validateSigil } from './sigil-data.js';
 export const SCENE_STORAGE_KEY = 'etch.scenes.v1';
 const vector = (v, positive = false) => Array.isArray(v) && v.length === 3 && v.every(n => Number.isFinite(n) && Math.abs(n) < 1e9 && (!positive || n > 0));
 const name = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
@@ -15,9 +16,9 @@ export function validateScene(scene) {
   const models = scene.models.map(entry => {
     identity(entry); const source = entry.source;
     if (!vector(entry.position) || !vector(entry.rotation) || !vector(entry.scale, true) || typeof entry.visible !== 'boolean') reject('A model has invalid transforms.');
-    if (!source || !['file', 'demo'].includes(source.kind) || (source.kind === 'demo' && !['knot', 'sphere', 'vessel'].includes(source.shape)) || (source.kind === 'file' && (typeof source.path !== 'string' || source.path.length > 4096 || typeof source.filename !== 'string' || !/\.(obj|glb)$/i.test(source.filename)))) reject('A model has an invalid file reference.');
+    if (!source || !['file', 'demo', 'sigil'].includes(source.kind) || (source.kind === 'demo' && !['knot', 'sphere', 'vessel'].includes(source.shape)) || (source.kind === 'file' && (typeof source.path !== 'string' || source.path.length > 4096 || typeof source.filename !== 'string' || !/\.(obj|glb)$/i.test(source.filename)))) reject('A model has an invalid file reference.');
     const hatch = entry.hatch ? validateSettings(entry.hatch) : null; if (entry.hatch && !hatch) reject('A model has invalid hatching settings.');
-    return { id: entry.id, name: entry.name, position: [...entry.position], rotation: [...entry.rotation], scale: [...entry.scale], visible: entry.visible, hatch, source: source.kind === 'demo' ? { kind: 'demo', shape: source.shape } : { kind: 'file', path: source.path, filename: source.filename } };
+    return { id: entry.id, name: entry.name, position: [...entry.position], rotation: [...entry.rotation], scale: [...entry.scale], visible: entry.visible, hatch, source: source.kind === 'sigil' ? {kind:'sigil',design:validateSigil(source.design)} : source.kind === 'demo' ? { kind: 'demo', shape: source.shape } : { kind: 'file', path: source.path, filename: source.filename } };
   });
   const lights = scene.lights.map(entry => {
     identity(entry); if (!['sun', 'point'].includes(entry.lightType) || !vector(entry.position) || !vector(entry.target) || !number(entry.intensity, 0, 5) || !number(entry.falloff, 0, .5) || !color(entry.color) || typeof entry.visible !== 'boolean') reject('A light has invalid settings.');
