@@ -1,4 +1,5 @@
-export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100 };
+export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026' };
+export const depthKeys=['depthOutline','depthThreshold','depthFloor','depthRadius','depthWidth','depthOpacity','depthMinLength','depthSmooth','depthSlope','depthAcross','depthColor'];
 
 export const lightDefaults = {
   sun: { position: [-3, 4, 4], target: [0, 0, 0], intensity: 1, falloff: 0.055, color: '#ffffff' },
@@ -18,7 +19,15 @@ export const definitions = [
   ['tone-controls', 'cavity', 'Valley emphasis', 0, 3, 0.1, ''],
   ['tone-controls', 'highlight', 'Highlight clearing', 0, 0.5, 0.01, '%'],
   ['cross-controls', 'crossThreshold', 'Shadow threshold', 0.15, 0.95, 0.01, '%'],
-  ['outline-controls', 'outlineWidth', 'Outline thickness', 0.5, 6, 0.1, ' px']
+  ['outline-controls', 'outlineWidth', 'Outline thickness', 0.5, 6, 0.1, ' px'],
+  ['depth-outline-controls','depthThreshold','Depth threshold',.001,.25,.001,'%'],
+  ['depth-outline-controls','depthFloor','Minimum depth jump',0,.5,.005,' units'],
+  ['depth-outline-controls','depthWidth','Depth line thickness',.3,6,.1,' px'],
+  ['depth-outline-controls','depthOpacity','Depth line opacity',.05,1,.05,'%'],
+  ['depth-outline-controls','depthRadius','Sampling distance',.5,5,.5,' px'],
+  ['depth-outline-controls','depthSlope','Slope rejection',0,1.5,.05,''],
+  ['depth-outline-controls','depthMinLength','Minimum edge length',0,80,1,' px'],
+  ['depth-outline-controls','depthSmooth','Edge smoothing',0,5,1,'']
 ];
 
 export const builtinPresets = [
@@ -37,7 +46,7 @@ export function validateSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Preset settings are invalid.');
   const result = {};
   for (const [key, defaultValue] of Object.entries(defaults)) {
-    const item = value[key];
+    const item = depthKeys.includes(key)&&value[key]===undefined?defaultValue:value[key];
     if (typeof defaultValue === 'number') {
       const limits = numericLimits[key];
       if (!Number.isFinite(item) || (limits && (item < limits[0] || item > limits[1])) || (key === 'quality' && ![800, 1100, 1600, 2200].includes(item))) throw new Error(`Preset ${key} is invalid.`);

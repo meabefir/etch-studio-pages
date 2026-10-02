@@ -6,7 +6,7 @@ export const sigilDefaults = {
   ridges: 0, ridgeDepth: 0, ridgeTwist: 0, bark: .035, barkFrequency: 18,
   thorns: true, thornDensity: 2.8, thornLength: .42, thornRadius: .085, thornCurve: .55, thornLean: -.22, thornJitter: .2, thornSides: 'alternate',
   leaves: false, leafDensity: 1.3, leafLength: .6, leafWidth: .18, leafThickness: .18, leafCurl: .35,
-  seed: 12, metalness: .15, roughness: .55, color: '#bfae93', live: true, showCurves: true
+  seed: 12, metalness: .15, roughness: .55, color: '#bfae93', live: true, showCurves: true,showAxes:false
 };
 export const sigilControls = [
   ['Shape', 'radiusScale', 'Radius multiplier', .15, 3, .05], ['Shape','flatten','Cross-section depth',.15,1.8,.05], ['Shape','bulge','Organic swelling',0,.8,.02], ['Shape','endTaper','End taper',0,1,.02], ['Shape','tipLength','Tip extension',0,2,.05], ['Shape','blend','Junction blending',0,.25,.005], ['Shape','poleBulge','Pole swelling',1,2,.05], ['Shape','twist','Cross-section twist',-6,6,.1], ['Shape','radialCopies','Radial copies',2,8,1],

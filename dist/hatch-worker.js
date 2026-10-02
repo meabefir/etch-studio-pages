@@ -136,10 +136,16 @@ self.onmessage = ({ data }) => {
       for (let y = 0; y < h; y++) { let x = 0; while (x < w) { if (mask[y*w+x] !== object) { x++; continue; } const start = x; while (x < w && mask[y*w+x] === object) x++; ctx.fillRect(start, y, x-start, 1); } }
     }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const depthPaths=depthContours(mask,z,w,h,scale,style);
     for (const object of objectIds) {
       const local = style(object); ctx.strokeStyle = local.ink; ctx.lineWidth = local.width * scale; ctx.beginPath();
       for (const { object: owner, points: path } of allPaths) { if (owner !== object) continue; ctx.moveTo(path[0], path[1]); for (let i = 2; i < path.length; i += 2) ctx.lineTo(path[i], path[i + 1]); }
       ctx.stroke();
+      if(local.depthOutline){
+        ctx.strokeStyle=local.depthColor;ctx.lineWidth=local.depthWidth*scale;ctx.globalAlpha=local.depthOpacity;ctx.beginPath();
+        for(const path of depthPaths){if(path.object!==object)continue;ctx.moveTo(path.points[0],path.points[1]);for(let i=2;i<path.points.length;i+=2)ctx.lineTo(path.points[i],path.points[i+1]);}
+        ctx.stroke();ctx.globalAlpha=1;
+      }
       if (!local.outline || local.outlineWidth <= 0) continue;
       // Boundaries are independent per visible object, including holes and overlaps.
       const edges = new Map(), stride = w + 1;
@@ -160,6 +166,58 @@ self.onmessage = ({ data }) => {
       ctx.stroke();
     }
     const bitmap = canvas.transferToImageBitmap();
-    self.postMessage({ id, bitmap, lines: lineCount, ms: Math.round(performance.now() - start), coveredPixels: mask.reduce((s, v) => s + (v > 0), 0) }, [bitmap]);
+    self.postMessage({ id, bitmap, lines: lineCount,depthEdges:depthPaths.length, ms: Math.round(performance.now() - start), coveredPixels: mask.reduce((s, v) => s + (v > 0), 0) }, [bitmap]);
   } catch (e) { self.postMessage({ id: data.id, error: e.message }); }
 };
+
+function depthContours(mask,z,w,h,scale,style){
+  const ids=[...new Set(mask)].filter(Boolean);if(!ids.some(id=>style(id).depthOutline))return [];
+  const count=w*h,strength=new Float32Array(count),direction=new Int8Array(count),edges=new Uint8Array(count);
+  const axes=[[1,0],[0,1],[-1,0],[0,-1]];
+  const pixel=(x,y)=>x>=0&&y>=0&&x<w&&y<h?y*w+x:-1;
+  // Score the closer side of a depth jump. Subtract the continuing surface
+  // slope on either side, so a tilted plane does not become a band of ink.
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x,object=mask[i];if(!object)continue;const p=style(object);if(!p.depthOutline)continue;
+    const r=Math.max(1,Math.round(p.depthRadius*scale));
+    for(let d=0;d<4;d++){
+      const [vx,vy]=axes[d],j=pixel(x+vx*r,y+vy*r);if(j<0||!mask[j]||(!p.depthAcross&&mask[j]!==object))continue;
+      const jump=z[j]-z[i];if(jump<=p.depthFloor)continue;
+      const a=pixel(x-vx*r,y-vy*r),b=pixel(x+vx*r*2,y+vy*r*2);let slope=0,samples=0;
+      if(a>=0&&mask[a]===object){slope+=Math.abs(z[i]-z[a]);samples++;}
+      if(b>=0&&mask[b]===mask[j]){slope+=Math.abs(z[b]-z[j]);samples++;}
+      const residual=jump-(samples?slope/samples:0)*p.depthSlope;
+      if(residual<=p.depthFloor)continue;const score=residual/Math.max(.02,z[i]);
+      if(score>=p.depthThreshold&&score>strength[i]){strength[i]=score;direction[i]=d;}
+    }
+  }
+  // Collapse the sampled band to a single contour, with deterministic ties
+  // toward the farther neighbor. Thickness is supplied only by the stroke.
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;if(!strength[i])continue;const [vx,vy]=axes[direction[i]],a=pixel(x-vx,y-vy),b=pixel(x+vx,y+vy);
+    const sa=a>=0&&mask[a]===mask[i]?strength[a]:0,sb=b>=0&&mask[b]===mask[i]?strength[b]:0;
+    if(strength[i]>=sa&&strength[i]>sb)edges[i]=1;
+  }
+  const offsets=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]],visited=new Uint8Array(count),paths=[];
+  function neighbors(i){const x=i%w,y=Math.floor(i/w),list=[];
+    for(let d=0;d<8;d++){const [vx,vy]=offsets[d],j=pixel(x+vx,y+vy);if(j<0||!edges[j]||mask[j]!==mask[i])continue;
+      if(vx&&vy){const a=pixel(x+vx,y),b=pixel(x,y+vy);if((a>=0&&edges[a]&&mask[a]===mask[i])||(b>=0&&edges[b]&&mask[b]===mask[i]))continue;}
+      list.push([j,d]);
+    }return list;
+  }
+  function trace(first,next,d){const points=[first%w+.5,Math.floor(first/w)+.5];let current=first,length=0,guard=0;
+    while(guard++<count){visited[current]|=1<<d;visited[next]|=1<<((d+4)%8);length+=Math.hypot(next%w-current%w,Math.floor(next/w)-Math.floor(current/w));points.push(next%w+.5,Math.floor(next/w)+.5);current=next;if(current===first)break;
+      const links=neighbors(current);if(links.length!==2)break;const unused=links.find(([,k])=>!(visited[current]&(1<<k)));if(!unused)break;[next,d]=unused;
+    }
+    const p=style(mask[first]);if(length<p.depthMinLength*scale||points.length<4)return;
+    const closed=current===first;
+    for(let pass=0;pass<Math.round(p.depthSmooth);pass++){const old=[...points],n=old.length/2;
+      for(let k=closed?0:1;k<(closed?n-1:n-1);k++){const prev=closed?(k+n-2)%(n-1):k-1,next=closed?(k+1)%(n-1):k+1;for(let a=0;a<2;a++)points[k*2+a]=old[prev*2+a]*.25+old[k*2+a]*.5+old[next*2+a]*.25;}
+      if(closed){points[points.length-2]=points[0];points[points.length-1]=points[1];}
+    }
+    paths.push({object:mask[first],points,length});
+  }
+  for(let i=0;i<count;i++)if(edges[i]){const links=neighbors(i);if(links.length===2)continue;for(const [j,d]of links)if(!(visited[i]&(1<<d)))trace(i,j,d);}
+  for(let i=0;i<count;i++)if(edges[i])for(const [j,d]of neighbors(i))if(!(visited[i]&(1<<d)))trace(i,j,d);
+  return paths;
+}

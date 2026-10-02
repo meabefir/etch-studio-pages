@@ -114,7 +114,7 @@ export class EtchEngine extends EventTarget {
       if (data.id === this.revision && !this.interacting) {
         this.paperCanvas.width = data.bitmap.width; this.paperCanvas.height = data.bitmap.height;
         this.paperCanvas.getContext('2d').drawImage(data.bitmap, 0, 0); this.ready = true;
-        this.emit('rendered', { lines: data.lines, ms: data.ms, width: data.bitmap.width, height: data.bitmap.height, coveredPixels: data.coveredPixels });
+        this.emit('rendered', { lines: data.lines,depthEdges:data.depthEdges||0, ms: data.ms, width: data.bitmap.width, height: data.bitmap.height, coveredPixels: data.coveredPixels });
       }
       data.bitmap.close(); this.draw(); if (this.dirty) this.schedule();
     };

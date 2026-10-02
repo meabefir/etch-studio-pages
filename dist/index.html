@@ -38,7 +38,7 @@
       <div class="stage-footer"><span id="status" role="status">Preparing the study…</span><div><label><input id="grid" type="checkbox"> Grid</label><button id="reset-camera">Reset view</button></div></div>
     </section>
     <aside class="panel settings-panel" aria-label="Render settings">
-      <div class="inspector-tabs" role="tablist"><button id="hatch-tab" role="tab" aria-selected="true" class="active">Hatching</button><button id="selection-tab" role="tab" aria-selected="false">Selection</button></div>
+      <div class="inspector-tabs" role="tablist"><button id="hatch-tab" role="tab" aria-selected="true" class="active">Hatching</button><button id="selection-tab" role="tab" aria-selected="false">Selection</button><button id="depth-tab" role="tab" aria-selected="false">Depth outlines</button></div>
       <div id="hatch-settings" class="settings-content" role="tabpanel" aria-labelledby="hatch-tab">
         <div class="hatch-scope"><label for="hatch-scope">Hatching setup</label><select id="hatch-scope"><option value="global">Global · all inherited objects</option></select><p id="scope-hint" class="hint">Objects use the global setup unless given their own style.</p></div>
         <div class="preset-block"><div class="preset-row"><label for="preset">Preset</label><select id="preset"></select></div><div class="preset-actions"><button id="load-preset" class="button subtle">Load preset</button><button id="save-preset" class="button">Save preset</button></div><p id="preset-status" class="hint" aria-live="polite">Built-in preset</p></div>
@@ -50,6 +50,14 @@
         <div class="setting-section"><label class="check-heading"><input type="checkbox" id="outline" checked> Outer outline</label><div id="outline-controls"></div><label class="inline-color">Outline color <input id="outline-color" type="color" value="#1b2026"></label></div>
         <div class="setting-section quality-row"><label for="quality">Render detail</label><select id="quality"><option value="800">Fast · 800 px</option><option value="1100" selected>Balanced · 1100 px</option><option value="1600">Fine · 1600 px</option><option value="2200">Print · 2200 px</option></select></div>
         <button id="reset-settings" class="button subtle full">Reset hatching settings</button>
+      </div>
+      <div id="depth-settings" class="settings-content" role="tabpanel" aria-labelledby="depth-tab" hidden>
+        <h2 class="depth-title">Depth outlines</h2>
+        <div class="hatch-scope"><label for="depth-scope">Depth outline setup</label><select id="depth-scope"></select><p class="hint">Shares the global or object setup used by Hatching. Saved with your presets and scenes.</p></div>
+        <div class="setting-section"><label class="check-heading"><input type="checkbox" id="depth-outline"> Enable depth outlines</label><p class="hint">Adds lines at depth jumps within visible geometry. Outer silhouettes keep their separate outline settings.</p></div>
+        <div class="setting-section"><label class="inline-color">Depth line color <input id="depth-line-color" type="color" value="#1b2026"></label><div id="depth-outline-controls"></div></div>
+        <div class="setting-section"><label class="checkbox-row"><input id="depth-across" type="checkbox" checked> Across object boundaries</label><p class="hint">Depth threshold is a fraction of the nearer surface's distance from the camera. Minimum depth jump uses scene units. Slope rejection reduces lines on smoothly tilted surfaces. Minimum edge length removes small fragments; smoothing softens pixel steps.</p></div>
+        <button id="reset-depth" class="button subtle full">Reset depth outlines</button>
       </div>
       <div id="selection-settings" class="settings-content" role="tabpanel" aria-labelledby="selection-tab" hidden></div>
     </aside>

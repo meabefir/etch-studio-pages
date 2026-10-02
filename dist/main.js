@@ -1,6 +1,6 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { EtchEngine } from './engine.js';
-import { defaults, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
+import { defaults, depthKeys, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
 import { starterSigil } from './sigil-data.js';
 import { cameraDefaults, projections } from './lenses.js';
@@ -9,7 +9,7 @@ import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, loca
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
-function tab(which) { const hatch = which === 'hatch'; $('hatch-settings').hidden = !hatch; $('selection-settings').hidden = hatch; for (const [id, active] of [['hatch-tab', hatch], ['selection-tab', !hatch]]) { $(id).classList.toggle('active', active); $(id).setAttribute('aria-selected', String(active)); } }
+function tab(which) { for(const name of ['hatch','selection','depth']){const active=which===name;$(name+'-settings').hidden=!active;$(name+'-tab').classList.toggle('active',active);$(name+'-tab').setAttribute('aria-selected',String(active));} }
 const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
@@ -26,6 +26,7 @@ function populateHatchScope() {
   if (hatchTarget && !engine.models.includes(hatchTarget)) hatchTarget = null;
   $('hatch-scope').replaceChildren(new Option('Global · inherited objects', 'global'), ...engine.models.map(e => new Option(`${e.name}${e.hatch ? ' · own style' : ' · global'}`, e.id)));
   $('hatch-scope').value = hatchTarget?.id || 'global';
+  $('depth-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.hatch?' · own style':' · global'}`,e.id)));$('depth-scope').value=hatchTarget?.id||'global';
   $('scope-hint').textContent = hatchTarget ? `Editing ${hatchTarget.name}. Render detail remains global; paper tint applies to this object's surface.` : 'Objects use the global setup unless given their own style.';
 }
 function setHatchScope(entry) { hatchTarget = entry; populateHatchScope(); refreshSettings(); }
@@ -79,7 +80,7 @@ function range(parent, key, name, min, max, step, suffix, value, callback, defau
   const labelRow = document.createElement('div'); labelRow.className = 'control-label';
   const label = document.createElement('label'), output = document.createElement('output'), input = document.createElement('input');
   input.id = `parameter-${key}`; input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = value; label.htmlFor = input.id; label.textContent = name; output.htmlFor = input.id;
-  const update = v => { if (key === 'camera-size') input.max = Math.max(30, Math.ceil(v)); input.value = v; output.value = suffix === '%' ? `${Math.round(v * 100)}%` : `${Number(Number(v).toFixed(2))}${suffix}`; };
+  const update = v => { if (key === 'camera-size') input.max = Math.max(30, Math.ceil(v)); input.value = v; output.value = suffix === '%' ? `${key==='depthThreshold'?Number((v*100).toFixed(1)):Math.round(v * 100)}%` : `${Number(Number(v).toFixed(3))}${suffix}`; };
   update(value); input.addEventListener('input', () => { update(+input.value); callback(+input.value); });
   const actions = document.createElement('div'); actions.className = 'property-actions';
   actions.append(output, resetButton(name, defaultValue, () => { update(defaultValue); callback(defaultValue); }));
@@ -278,6 +279,8 @@ function refreshSettings() {
   const params = hatchParams();
   for (const [key, control] of controls) control.update(params[key]);
   $('ink').value = params.ink; $('paper-color').value = params.paper; $('outline-color').value = params.outlineColor;
+  $('depth-line-color').value=params.depthColor;$('depth-outline').checked=params.depthOutline;$('depth-across').checked=params.depthAcross;
+  for(const key of depthKeys){const control=controls.get(key);if(control)control.input.disabled=!params.depthOutline;}$('depth-line-color').disabled=$('depth-across').disabled=!params.depthOutline;
   $('cross').checked = params.cross; $('outline').checked = params.outline; $('quality').value = engine.params.quality;
   controls.get('crossThreshold').input.disabled = !params.cross; controls.get('outlineWidth').input.disabled = !params.outline;
   updatePresetStatus();
@@ -310,7 +313,7 @@ async function init() {
   $('light-icons').after(resetButton('Light icons','on',()=>engine.setLightIconsVisible(true)));
   engine.addEventListener('navigation',e=>{$('fly-hint').hidden=!e.detail;});
   engine.addEventListener('rendering', () => { $('status').textContent = 'Tracing surface lines…'; });
-  engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
+  engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes${e.detail.depthEdges?` + ${e.detail.depthEdges} depth edges`:''} · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
   try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
   try { savedScenes = readSavedScenes(localStorage); } catch (e) { toast(e.message); } populateScenes();
   setupSceneStorage();
@@ -320,6 +323,9 @@ async function init() {
   $('add-camera').onclick = () => { engine.select(engine.addCamera()); tab('selection'); };
   $('hatch-scope').onchange = () => { const entry = engine.models.find(e => e.id === $('hatch-scope').value); if (entry && !entry.hatch) engine.setObjectParams(entry, { ...engine.params }); setHatchScope(entry || null); };
   attachReset($('hatch-scope'), 'Hatching setup', 'Global', () => setHatchScope(null));
+  $('depth-scope').onchange=()=>{const entry=engine.models.find(e=>e.id===$('depth-scope').value);if(entry&&!entry.hatch)engine.setObjectParams(entry,{...engine.params});setHatchScope(entry||null);};
+  attachReset($('depth-scope'),'Depth outline setup','Global',()=>setHatchScope(null));
+  $('reset-depth').onclick=()=>{applyHatchPatch(Object.fromEntries(depthKeys.map(key=>[key,defaults[key]])));};
   $('add-sun').onclick = () => { engine.select(engine.addLight('sun')); tab('selection'); };
   $('add-point').onclick = () => { engine.select(engine.addLight('point')); tab('selection'); };
   $('delete').onclick = () => engine.remove(); $('frame').onclick = () => engine.frame(); $('reset-camera').onclick = () => engine.resetCamera();
@@ -333,11 +339,11 @@ async function init() {
   document.querySelectorAll('[data-transform]').forEach(button => button.onclick = () => transformMode(button.dataset.transform));
   document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => viewMode(button.dataset.view));
   document.querySelectorAll('[data-demo]').forEach(button => button.onclick = async () => { try { const entry = await engine.demo(button.dataset.demo); engine.select(entry); engine.frame(entry); tab('selection'); } catch (e) { toast(e.message); } });
-  $('hatch-tab').onclick = () => tab('hatch'); $('selection-tab').onclick = () => tab('selection');
-  for (const [id, key, name] of [['ink', 'ink', 'Line color'], ['paper-color', 'paper', 'Paper'], ['outline-color', 'outlineColor', 'Outline color']]) {
+  $('hatch-tab').onclick = () => tab('hatch'); $('selection-tab').onclick = () => tab('selection');$('depth-tab').onclick=()=>tab('depth');
+  for (const [id, key, name] of [['ink', 'ink', 'Line color'], ['paper-color', 'paper', 'Paper'], ['outline-color', 'outlineColor', 'Outline color'],['depth-line-color','depthColor','Depth line color']]) {
     $(id).oninput = () => applyHatchPatch({ [key]: $(id).value }); attachReset($(id), name, defaults[key], () => applyHatchPatch({ [key]: defaults[key] }));
   }
-  for (const [id, key, name] of [['cross', 'cross', 'Cross-hatching'], ['outline', 'outline', 'Outer outline']]) {
+  for (const [id, key, name] of [['cross', 'cross', 'Cross-hatching'], ['outline', 'outline', 'Outer outline'],['depth-outline','depthOutline','Depth outlines'],['depth-across','depthAcross','Across object boundaries']]) {
     $(id).onchange = () => applyHatchPatch({ [key]: $(id).checked }); attachReset($(id), name, defaults[key] ? 'on' : 'off', () => applyHatchPatch({ [key]: defaults[key] }));
   }
   $('quality').onchange = () => { engine.setParams({ quality: +$('quality').value }); refreshSettings(); };
