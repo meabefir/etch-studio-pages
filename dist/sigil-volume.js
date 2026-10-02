@@ -1,10 +1,10 @@
-const B=8,N=B**3,BUDGET=9000000;
+const B=8,N=B**3;
 const sub=(a,b)=>a.map((v,i)=>v-b[i]),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],unit=a=>{const l=Math.hypot(...a)||1;return a.map(v=>v/l);},lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 // Only blocks touched by swept geometry exist. Shared lattice nodes and tetrahedra
 // have identical IDs across block boundaries, keeping caps and junctions watertight.
 export function buildSparseSurface(groups,s,resolution,report){
   const variableBlend=groups.some(g=>g.settings&&g.settings.blend!==s.blend),step=resolution.step,blocks=new Map(),pages=[],key=(x,y,z)=>`${x},${y},${z}`;
-  function page(x,y,z){const name=key(x,y,z);let block=blocks.get(name);if(!block){if((pages.length+1)*N>BUDGET)throw new Error('The occupied mesh regions exceed the detail budget. Reduce mesh resolution or Maximum detail boost; detail is never reduced automatically.');block={x,y,z,id:pages.length,field:new Float32Array(N).fill(1000),blends:variableBlend?new Float32Array(N):null,temp:new Float32Array(N),marks:new Uint32Array(N),group:0,touched:[]};pages.push(block);blocks.set(name,block);}return block;}
+  function page(x,y,z){const name=key(x,y,z);let block=blocks.get(name);if(!block){if((pages.length+1)*N>(s.detailBudget??9000000))throw new Error('The occupied mesh regions exceed the detail budget. Increase Detail budget in Resolution & finish, or reduce mesh resolution or Maximum detail boost.');block={x,y,z,id:pages.length,field:new Float32Array(N).fill(1000),blends:variableBlend?new Float32Array(N):null,temp:new Float32Array(N),marks:new Uint32Array(N),group:0,touched:[]};pages.push(block);blocks.set(name,block);}return block;}
   report({phase:'Sampling occupied regions',progress:0});
   for(let gi=0;gi<groups.length;gi++){
     const group=groups[gi],style=group.settings||s,groupId=gi+1,touchedBlocks=[];
@@ -46,9 +46,9 @@ export function buildSparseSurface(groups,s,resolution,report){
   const value=(x,y,z)=>sample(x,y,z).value;
   function coordinates(id){const block=pages[Math.floor(id/N)],i=id%N;return [block.x*B+i%B,block.y*B+Math.floor(i/B)%B,block.z*B+Math.floor(i/(B*B))];}
   function gradient(id){let g=gradients.get(id);if(g)return g;const [x,y,z]=coordinates(id);g=[value(x+1,y,z)-value(x-1,y,z),value(x,y+1,z)-value(x,y-1,z),value(x,y,z+1)-value(x,y,z-1)];gradients.set(id,g);return g;}
-  function vertex(a,b,va,vb){if(a<0||b<0)throw new Error('A surface reached the sampling boundary.');const name=Math.min(a,b)*total+Math.max(a,b);if(edges.has(name))return edges.get(name);const t=clamp(va/(va-vb),.000001,.999999),v=lerp(coordinates(a),coordinates(b),t).map(v=>v*step),n=unit(lerp(gradient(a),gradient(b),t)),id=positions.length/3;positions.push(...v);normals.push(...n);edges.set(name,id);return id;}
+  function vertex(a,b,va,vb){if(a<0||b<0)throw new Error('A surface reached the sampling boundary.');const lo=Math.min(a,b),hi=Math.max(a,b),name=total*total<=Number.MAX_SAFE_INTEGER?lo*total+hi:`${lo},${hi}`;if(edges.has(name))return edges.get(name);const t=clamp(va/(va-vb),.000001,.999999),v=lerp(coordinates(a),coordinates(b),t).map(v=>v*step),n=unit(lerp(gradient(a),gradient(b),t)),id=positions.length/3;positions.push(...v);normals.push(...n);edges.set(name,id);return id;}
   function triangle(a,b,c){const pa=positions.slice(a*3,a*3+3),pb=positions.slice(b*3,b*3+3),pc=positions.slice(c*3,c*3+3),n=[0,1,2].map(i=>normals[a*3+i]+normals[b*3+i]+normals[c*3+i]);if(dot(cross(sub(pb,pa),sub(pc,pa)),n)<0)indices.push(a,c,b);else indices.push(a,b,c);}
-  const L=B+1,offset=[0,1,L+1,L,L*L,L*L+1,L*L+L+1,L*L+L],tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]],ids=new Int32Array(L**3),values=new Float32Array(L**3);
+  const L=B+1,offset=[0,1,L+1,L,L*L,L*L+1,L*L+L+1,L*L+L],tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]],ids=new Float64Array(L**3),values=new Float32Array(L**3);
   for(let bi=0;bi<pages.length;bi++){
     const block=pages[bi];for(let z=0;z<L;z++)for(let y=0;y<L;y++)for(let x=0;x<L;x++){const node=sample(block.x*B+x,block.y*B+y,block.z*B+z),i=(z*L+y)*L+x;ids[i]=node.id;values[i]=node.value;}
     for(let z=0;z<B;z++)for(let y=0;y<B;y++)for(let x=0;x<B;x++){

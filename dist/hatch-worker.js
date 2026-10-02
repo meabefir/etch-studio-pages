@@ -1,3 +1,4 @@
+import {rampTable,rgb} from './toon.js';
 // Evenly spaced, bidirectional screen-space streamlines with midpoint integration.
 // The GPU supplies visible depth, normals, lighting and projected curvature lines.
 self.onmessage = ({ data }) => {
@@ -17,6 +18,14 @@ self.onmessage = ({ data }) => {
       if (!mask[i]) continue;
       if(!packed){shade[i] = field[j + 2] / 255;dx[i] = field[j] / 127.5 - 1; dy[i] = field[j + 1] / 127.5 - 1;z[i] = (depth[j] * 256 + depth[j + 1]) / 65535 * data.far;}
       zmin = Math.min(zmin, depthAt(i)); zmax = Math.max(zmax, depthAt(i));
+    }
+    const objectIds=[...new Set(mask)].filter(Boolean),hasToon=objectIds.some(object=>['toon','combined'].includes(style(object).shadeMode));
+    const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
+    ctx.fillStyle = p.paper; ctx.fillRect(0, 0, w, h);
+    if(hasToon){
+      const tables=new Map(objectIds.map(object=>{const local=style(object);return [object,['toon','combined'].includes(local.shadeMode)?rampTable(local.toonRamp,local.toonBlend):null];})),papers=new Map(objectIds.map(object=>[object,rgb(style(object).paper)])),paper=rgb(p.paper),row=ctx.createImageData(w,1);
+      // Paint rows directly, keeping 10K exports from allocating another full image.
+      for(let y=0;y<h;y++){for(let x=0;x<w;x++){const i=y*w+x,object=mask[i],table=tables.get(object),tone=packed?field[i*3+2]:field[((h-1-y)*w+x)*4+2],color=object?papers.get(object):paper,j=x*4;for(let k=0;k<3;k++)row.data[j+k]=table?table[tone*3+k]:color[k];row.data[j+3]=255;}ctx.putImageData(row,0,y);}
     }
     // Screen-space cavity contrast is restrained; it affects density, never width.
     const radius = Math.max(2, Math.round(6 * scale));
@@ -40,8 +49,6 @@ self.onmessage = ({ data }) => {
       const distance = (z[i] - zmin) / Math.max(0.001, zmax - zmin);
       spacing[i] = (min + (max - min) * Math.pow(shade[i], local.contrast)) * (1 + distance * local.depthSpacing);
     }
-    const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
-    ctx.fillStyle = p.paper; ctx.fillRect(0, 0, w, h);
     const pixel = (x, y) => {
       const ix = Math.round(x), iy = Math.round(y);
       return ix > 0 && iy > 0 && ix < w - 1 && iy < h - 1 ? iy * w + ix : -1;
@@ -70,7 +77,7 @@ self.onmessage = ({ data }) => {
     function layer(cross) {
       const cell = Math.max(1, minSpace * 0.75), gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
       const sparse=gw*gh>1000000,bins=sparse?new Map():new Array(gw*gh),getBin=i=>sparse?bins.get(i):bins[i];
-      const eligible = i => i >= 0 && mask[i] && (!cross || style(mask[i]).cross) && darknessAt(i) >= (cross ? style(mask[i]).crossThreshold : style(mask[i]).highlight);
+      const eligible = i => i >= 0 && mask[i] && style(mask[i]).shadeMode!=='toon' && (!cross || style(mask[i]).cross) && darknessAt(i) >= (cross ? style(mask[i]).crossThreshold : style(mask[i]).highlight);
       const queue = [], seeds = [], step = Math.max(0.35, Math.min(1.25 * scale, minSpace * .6));
       function available(x, y, distance) {
         const object = mask[pixel(x, y)];
@@ -134,11 +141,10 @@ self.onmessage = ({ data }) => {
         }
       }
     }
-    layer(false); if (p.cross || styles.some(s => s.cross)) layer(true);
-    const objectIds = [...new Set(mask)].filter(Boolean);
+    if(objectIds.some(object=>style(object).shadeMode!=='toon')){layer(false);if(p.cross||styles.some(s=>s.cross))layer(true);}
     // Optional per-object paper tint applies only to that object's visible surface.
     for (const object of objectIds) {
-      const local = style(object); if (local.paper === p.paper) continue;
+      const local = style(object); if (local.paper === p.paper||['toon','combined'].includes(local.shadeMode)) continue;
       ctx.fillStyle = local.paper;
       for (let y = 0; y < h; y++) { let x = 0; while (x < w) { if (mask[y*w+x] !== object) { x++; continue; } const start = x; while (x < w && mask[y*w+x] === object) x++; ctx.fillRect(start, y, x-start, 1); } }
     }

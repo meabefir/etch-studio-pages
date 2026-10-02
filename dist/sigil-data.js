@@ -1,5 +1,5 @@
 export const sigilDefaults = {
-  curveResolution: 18, meshResolution: 92, adaptiveResolution: false, adaptiveQuality: 2, adaptiveBoost: 3, radiusScale: 1, flatten: 1, bulge: .12, endTaper: .25, tipLength: .4, cap: 'rounded',
+  curveResolution: 18, meshResolution: 92, adaptiveResolution: false, adaptiveQuality: 2, adaptiveBoost: 3, detailBudget:9000000, smoothMesh:false, smoothAngle:45, smoothStrength:.35, smoothPasses:4, smoothVolume:true, radiusScale: 1, flatten: 1, bulge: .12, endTaper: .25, tipLength: .4, cap: 'rounded',
   blend: .055, poleBulge: 1.18, symmetry: 'mirror', radialCopies: 4, twist: 0,
   ripple: true, rippleAmplitude: .12, rippleFrequency: 8, ripplePhase: 0, rippleSharpness: 1,
   spineWave: 0, spineFrequency: 3, spineDepth: 0,
@@ -14,7 +14,7 @@ export const sigilControls = [
   ['Surface texture','ridges','Flute count',0,16,1], ['Surface texture','ridgeDepth','Flute depth',0,.5,.02], ['Surface texture','ridgeTwist','Spiral turns',-8,8,.1], ['Surface texture','bark','Bark relief',0,.3,.01], ['Surface texture','barkFrequency','Bark frequency',2,50,1], ['Surface texture','seed','Pattern seed',1,999,1],
   ['Thorns','thornDensity','Thorns per unit',.3,7,.1], ['Thorns','thornLength','Thorn length',.05,1.2,.02], ['Thorns','thornRadius','Thorn base radius',.025,.25,.005], ['Thorns','thornCurve','Thorn curvature',0,1,.05], ['Thorns','thornLean','Thorn lean',-.8,.8,.05], ['Thorns','thornJitter','Growth variation',0,.8,.05],
   ['Leaves','leafDensity','Leaves per unit',.3,4,.1], ['Leaves','leafLength','Leaf length',.1,1.2,.025], ['Leaves','leafWidth','Leaf width',.05,.45,.01], ['Leaves','leafThickness','Leaf thickness',.08,.5,.02], ['Leaves','leafCurl','Leaf curl',0,1,.05],
-  ['Resolution & finish','curveResolution','Samples per segment',6,64,2], ['Resolution & finish','meshResolution','Mesh grid resolution',40,160,4], ['Resolution & finish','adaptiveQuality','Adaptive detail fidelity',1,4,.25], ['Resolution & finish','adaptiveBoost','Maximum detail boost',1,6,.25], ['Resolution & finish','metalness','Metallic finish',0,1,.05], ['Resolution & finish','roughness','Surface roughness',.05,1,.05]
+  ['Resolution & finish','curveResolution','Samples per segment',6,64,2], ['Resolution & finish','meshResolution','Mesh grid resolution',40,160,4], ['Resolution & finish','adaptiveQuality','Adaptive detail fidelity',1,4,.25], ['Resolution & finish','adaptiveBoost','Maximum detail boost',1,6,.25], ['Resolution & finish','smoothAngle','Sharp angle threshold (°)',0,180,1], ['Resolution & finish','smoothStrength','Smoothing strength',.05,.8,.05], ['Resolution & finish','smoothPasses','Smoothing passes',1,20,1], ['Resolution & finish','metalness','Metallic finish',0,1,.05], ['Resolution & finish','roughness','Surface roughness',.05,1,.05]
 ];
 export const sigilPresets = [
   { id:'thorn',name:'Thorn sigil',settings:{...sigilDefaults} },
@@ -25,14 +25,16 @@ export const sigilPresets = [
   { id:'relic',name:'Forged relic',settings:{...sigilDefaults,rippleAmplitude:.27,rippleFrequency:16,rippleSharpness:2.3,ridges:6,ridgeDepth:.28,ridgeTwist:2,bark:.06,flatten:.75,thorns:false,cap:'flat',endTaper:0,metalness:.9,roughness:.28,color:'#a88955'} }
 ];
 const options = {cap:['rounded','flat','pointed'],symmetry:['none','mirror','radial'],thornSides:['alternate','paired','spiral']};
-export const sigilSharedKeys=['curveResolution','meshResolution','adaptiveResolution','adaptiveQuality','adaptiveBoost','metalness','roughness','color','live','showCurves','showAxes'];
+export const sigilSharedKeys=['curveResolution','meshResolution','adaptiveResolution','adaptiveQuality','adaptiveBoost','detailBudget','smoothMesh','smoothAngle','smoothStrength','smoothPasses','smoothVolume','metalness','roughness','color','live','showCurves','showAxes'];
 export const sigilMotifKeys=Object.keys(sigilDefaults).filter(key=>!sigilSharedKeys.includes(key));
 const limits=Object.fromEntries(sigilControls.map(([,key,,min,max])=>[key,[min,max]]));
+limits.detailBudget=[512,Infinity];
 function settingsFor(value,keys){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid sigil settings.');
   const settings={};for(const key of keys){const v=value[key]??sigilDefaults[key],defaultValue=sigilDefaults[key];
     if(typeof v!==typeof defaultValue||(typeof v==='number'&&(!Number.isFinite(v)||v<limits[key][0]||v>limits[key][1]))||(options[key]&&!options[key].includes(v))||(key==='color'&&!/^#[0-9a-f]{6}$/i.test(v)))throw new Error(`Invalid sigil setting: ${key}.`);
-    settings[key]=['curveResolution','meshResolution','seed','radialCopies','ridges'].includes(key)?Math.round(v):v;
+    if(key==='detailBudget'&&!Number.isSafeInteger(v))throw new Error('Detail budget must be a positive whole number.');
+    settings[key]=['curveResolution','meshResolution','smoothPasses','seed','radialCopies','ridges'].includes(key)?Math.round(v):v;
   }return settings;
 }
 export function motifSettings(value){return settingsFor(value,sigilMotifKeys);}

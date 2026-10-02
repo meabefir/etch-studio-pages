@@ -1,6 +1,7 @@
 import { validateSigil, nodeMap, pointOf, radiusOf, resolveNode, curveSettings, motifSettings } from './sigil-data.js';
 import { adaptiveCurveParameters, adaptiveGrowthSamples, planSigilResolution } from './sigil-resolution.js';
 import { buildSparseSurface } from './sigil-volume.js';
+import { smoothSigilMesh } from './sigil-smoothing.js';
 const add=(a,b)=>a.map((v,i)=>v+b[i]),sub=(a,b)=>a.map((v,i)=>v-b[i]),mul=(a,s)=>a.map(v=>v*s),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],length=a=>Math.hypot(...a),unit=a=>mul(a,1/(length(a)||1)),lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=(seed,i)=>{const n=Math.sin(seed*127.1+i*311.7)*43758.5453;return n-Math.floor(n);};
 function bezier(a,b,c,d,t){const u=1-t;return a.map((v,i)=>v*u*u*u+3*b[i]*u*u*t+3*c[i]*u*t*t+d[i]*t*t*t);}
@@ -88,5 +89,5 @@ export function buildSigil(input,report=()=>{}) {
   report({phase:'Sampling local curve detail',progress:0});
   let groups=sigilGroups(design),resolution=planSigilResolution(groups,s,design);
   groups=sigilGroups(design,resolution.step);resolution=planSigilResolution(groups,s,design);
-  const mesh=buildSparseSurface(groups,s,resolution,report);mesh.ms=Math.round(performance.now()-start);return mesh;
+  const mesh=smoothSigilMesh(buildSparseSurface(groups,s,resolution,report),s,report);mesh.ms=Math.round(performance.now()-start);return mesh;
 }

@@ -39,20 +39,23 @@ const fragmentShader = `
 precision highp float;
 in vec3 vNormal; in vec3 vPosition; in vec2 vFlow; in vec2 vGuide; in float vConfidence;
 uniform float uId; uniform float uFar; uniform float uFlow; uniform float uAmbient;
-uniform int uCount; uniform vec4 uLights[8]; uniform vec2 uPowers[8];
+uniform int uCount; uniform int uShadeMode; uniform vec4 uLights[8]; uniform vec2 uPowers[8];
 layout(location=0) out vec4 outNormal;
 layout(location=1) out vec4 outField;
 layout(location=2) out vec4 outDepth;
 void main() {
   vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
   float brightness = uAmbient;
+  vec3 averagedDirection=vec3(0.0);
   for(int i=0; i<8; i++) {
     if(i>=uCount) break;
     vec3 delta = uLights[i].xyz - vPosition;
     vec3 direction = uLights[i].w < 0.5 ? normalize(uLights[i].xyz) : normalize(delta);
     float attenuation = uLights[i].w < 0.5 ? 1.0 : 1.0 / (1.0 + dot(delta, delta) * uPowers[i].y);
     brightness += max(0.0, dot(n, direction)) * uPowers[i].x * attenuation;
+    if(uPowers[i].x>0.000001)averagedDirection+=direction;
   }
+  if(uShadeMode>0)brightness=length(averagedDirection)>0.000001?max(0.0,dot(n,normalize(averagedDirection))):0.0;
   vec2 flow = normalize(mix(vGuide, vFlow, uFlow * smoothstep(0.03, 0.35, vConfidence)) + vec2(0.00001));
   float d = clamp(-vPosition.z / uFar, 0.0, 1.0) * 65535.0;
   outNormal = vec4(n*0.5+0.5, uId/255.0);
@@ -258,7 +261,7 @@ export class EtchEngine extends EventTarget {
   }
   fieldMaterial(id) {
     return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide, uniforms: {
-      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAmbient: { value: this.params.ambient }, uCount: { value: 0 },
+      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAmbient: { value: this.params.ambient }, uCount: { value: 0 },uShadeMode:{value:0},
       uLights: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uPowers: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) }
     } });
   }
@@ -317,10 +320,22 @@ export class EtchEngine extends EventTarget {
       loader.register(parser => { parser.loadMaterial = () => Promise.resolve(new THREE.MeshBasicMaterial()); return { name: 'ETCH_GEOMETRY_ONLY' }; });
       try { root = (await loader.parseAsync(await file.arrayBuffer(), '')).scene; } finally { draco.dispose(); }
     } else throw new Error('Choose an OBJ or GLB file.');
-    const entry = await this.addModel(root, file.name.replace(/\.[^.]+$/, ''), true, register);
-    entry.source = source || { kind: 'file', path: '', filename: file.name };
-    root.traverse(node => { node.geometry?.dispose(); const mats = Array.isArray(node.material) ? node.material : [node.material]; for (const m of mats) m?.dispose(); });
-    if (register) { this.select(entry); this.frame(entry); } return entry;
+    const imported=[],baseName=file.name.replace(/\.[^.]+$/, ''),parts=[];root.traverse(node=>{if(node.isMesh&&node.geometry?.attributes.position)parts.push(node);});
+    try{
+      const split=ext==='obj'&&(parts.length>1||source?.part!=null)&&(register||source?.part!=null);
+      if(split){
+        const chosen=source?.part!=null?[parts[source.part]]:parts;if(chosen.some(node=>!node))throw new Error('The saved OBJ object is missing from this file. Relink the original file or import it again.');
+        if(register&&this.models.length+chosen.length>200)throw new Error('The scene supports up to 200 models.');
+        const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=3.7/Math.max(size.x,size.y,size.z);
+        if(!Number.isFinite(factor))throw new Error('The model geometry is empty or invalid.');root.position.sub(center).multiplyScalar(factor);root.scale.multiplyScalar(factor);root.updateMatrixWorld(true);
+        for(const node of chosen){const entry=await this.addModel(node,`${baseName} · ${node.name||`Object ${parts.indexOf(node)+1}`}`,false,false),localCenter=new THREE.Box3().setFromObject(entry.object).getCenter(new THREE.Vector3());
+          entry.object.traverse(mesh=>{if(mesh.isMesh)mesh.geometry.translate(-localCenter.x,-localCenter.y,-localCenter.z);});entry.object.position.copy(localCenter);entry.source={...(source||{kind:'file',path:'',filename:file.name}),part:parts.indexOf(node)};imported.push(entry);
+        }
+      }else{const entry=await this.addModel(root,baseName,true,false);entry.source=source||{kind:'file',path:'',filename:file.name};imported.push(entry);}
+      if(register){if(this.models.length+imported.length>200)throw new Error('The scene supports up to 200 models.');for(const entry of imported){this.models.push(entry);this.scene.add(entry.object);}this.invalidate();this.emit('scene');this.select(imported[0]);const frameGroup=new THREE.Group();for(const entry of imported){entry.object.updateMatrixWorld(true);entry.object.traverse(mesh=>{if(mesh.isMesh){const proxy=new THREE.Mesh(mesh.geometry,mesh.material);proxy.applyMatrix4(mesh.matrixWorld);frameGroup.add(proxy);}});}this.frame({type:'model',object:frameGroup});this.draw();this.schedule();}
+      return imported[0];
+    }catch(error){for(const entry of imported)entry.object.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();mesh.userData.fieldMaterial?.dispose();});throw error;}
+    finally{root.traverse(node => { node.geometry?.dispose(); const mats = Array.isArray(node.material) ? node.material : [node.material]; for (const m of mats) m?.dispose(); });}
   }
   addLight(type = 'sun') {
     if (this.lights.length >= 8) throw new Error('Up to eight lights can be used at once.');
@@ -406,7 +421,7 @@ export class EtchEngine extends EventTarget {
     try{
       for(let m=0;m<this.models.length;m++)this.models[m].object.traverse(mesh=>{
         if(!mesh.isMesh)return;originals.push([mesh,mesh.material]);const mat=mesh.userData.fieldMaterial;mesh.material=mat;
-        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;
+        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;u.uShadeMode.value=style.shadeMode==='toon'?1:style.shadeMode==='combined'?2:0;
         for(let i=0;i<lights.length;i++){const light=lights[i],v=light.object.getWorldPosition(new THREE.Vector3());if(light.lightType==='sun')v.sub(light.target).normalize().transformDirection(camera.matrixWorldInverse);else v.applyMatrix4(camera.matrixWorldInverse);
           u.uLights.value[i].set(v.x,v.y,v.z,light.lightType==='sun'?0:1);const c=light.object.color;u.uPowers.value[i].set(light.intensity*(c.r*.2126+c.g*.7152+c.b*.0722),light.falloff);}
       });

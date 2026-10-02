@@ -1,4 +1,5 @@
-export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026' };
+import {toonDefaults,toonKeys,validateRamp} from './toon.js';
+export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026',...toonDefaults };
 export const depthKeys=['depthOutline','depthThreshold','depthFloor','depthRadius','depthWidth','depthOpacity','depthMinLength','depthSmooth','depthSlope','depthAcross','depthColor'];
 
 export const lightDefaults = {
@@ -46,7 +47,9 @@ export function validateSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Preset settings are invalid.');
   const result = {};
   for (const [key, defaultValue] of Object.entries(defaults)) {
-    const item = depthKeys.includes(key)&&value[key]===undefined?defaultValue:value[key];
+    const item = (depthKeys.includes(key)||toonKeys.includes(key))&&value[key]===undefined?defaultValue:value[key];
+    if(key==='toonRamp'){result[key]=validateRamp(item);continue;}
+    if(key==='shadeMode'||key==='toonBlend'){if(!(key==='shadeMode'?['hatch','toon','combined']:['linear','constant']).includes(item))throw new Error(`Preset ${key} is invalid.`);result[key]=item;continue;}
     if (typeof defaultValue === 'number') {
       const limits = numericLimits[key];
       if (!Number.isFinite(item) || (limits && (item < limits[0] || item > limits[1])) || (key === 'quality' && ![800, 1100, 1600, 2200].includes(item))) throw new Error(`Preset ${key} is invalid.`);
@@ -92,4 +95,4 @@ export function saveNamedPreset(storage, name, settings) {
   return { presets: updated, preset, replaced: Boolean(existing) };
 }
 
-export function settingsMatch(a, b) { return Object.keys(defaults).every(key => a[key] === b[key]); }
+export function settingsMatch(a, b) { return Object.keys(defaults).every(key => Array.isArray(a[key])?JSON.stringify(a[key])===JSON.stringify(b[key]):a[key] === b[key]); }

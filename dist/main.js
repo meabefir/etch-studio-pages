@@ -1,5 +1,6 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js';
+import { ToonEditor } from './toon-editor.js';
 import { EtchEngine } from './engine.js';
 import { defaults, depthKeys, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
@@ -10,11 +11,11 @@ import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, loca
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
-function tab(which) { for(const name of ['hatch','selection','depth']){const active=which===name;$(name+'-settings').hidden=!active;$(name+'-tab').classList.toggle('active',active);$(name+'-tab').setAttribute('aria-selected',String(active));} }
+function tab(which) { for(const name of ['hatch','selection','depth','toon']){const active=which===name;$(name+'-settings').hidden=!active;$(name+'-tab').classList.toggle('active',active);$(name+'-tab').setAttribute('aria-selected',String(active));} }
 const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
-let sigilEditor;
+let sigilEditor,toonEditor;
 async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
@@ -28,6 +29,7 @@ function populateHatchScope() {
   $('hatch-scope').replaceChildren(new Option('Global · inherited objects', 'global'), ...engine.models.map(e => new Option(`${e.name}${e.hatch ? ' · own style' : ' · global'}`, e.id)));
   $('hatch-scope').value = hatchTarget?.id || 'global';
   $('depth-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.hatch?' · own style':' · global'}`,e.id)));$('depth-scope').value=hatchTarget?.id||'global';
+  $('toon-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.hatch?' · own style':' · global'}`,e.id)));$('toon-scope').value=hatchTarget?.id||'global';
   $('scope-hint').textContent = hatchTarget ? `Editing ${hatchTarget.name}. Render detail remains global; paper tint applies to this object's surface.` : 'Objects use the global setup unless given their own style.';
 }
 function setHatchScope(entry) { hatchTarget = entry; populateHatchScope(); refreshSettings(); }
@@ -202,7 +204,7 @@ async function restoreScene(state) {
         if (localPaths && source.path) try { file = await localModel(source.path); } catch (e) { error = e.message; }
         else error = source.path ? 'The local file service is unavailable. Reselect this model file.' : 'The saved model has no full local path. Reselect it or enter its path.';
         while (!entry) {
-          if (!file) { const result = await requestModelPath({ title: `Relink ${saved.name}`, description: `The model could not be opened: ${source.path || source.filename}. Update its location to continue loading this scene.`, path: source.path, error }); if (!result) return false; file = result.file; source = result.source; }
+          if (!file) { const result = await requestModelPath({ title: `Relink ${saved.name}`, description: `The model could not be opened: ${source.path || source.filename}. Update its location to continue loading this scene.`, path: source.path, error }); if (!result) return false; file = result.file; source = {...source,...result.source}; }
           try { entry = await engine.load(file, { register: false, source }); }
           catch (e) { error = `Could not read model geometry: ${e.message}`; file = null; }
         }
@@ -234,7 +236,7 @@ function setupSceneStorage() {
     try {
       if (localPaths) for (const entry of engine.models) if (entry.source?.kind === 'file') {
         let error = ''; if (entry.source.path) try { await localModel(entry.source.path, true); continue; } catch (e) { error = e.message; }
-        const result = await requestModelPath({ title: `File path for ${entry.name}`, description: 'The browser does not reveal the full path of a browsed file. Enter it once so saved scenes can reopen this model automatically.', path: entry.source.path, error, infoOnly: true }); if (!result) return; entry.source = result.source;
+        const result = await requestModelPath({ title: `File path for ${entry.name}`, description: 'The browser does not reveal the full path of a browsed file. Enter it once so saved scenes can reopen this model automatically.', path: entry.source.path, error, infoOnly: true }); if (!result) return; entry.source = {...entry.source,...result.source};
       }
       const result = saveNamedScene(localStorage, name, snapshotScene(engine)); savedScenes = result.scenes; selectedSceneId = result.record.id; toast(`${result.replaced ? 'Updated' : 'Saved'} scene “${result.record.name}”.`);
     } catch (e) { toast(e.name === 'QuotaExceededError' ? 'Browser storage is full. The scene was not saved.' : e.message); }
@@ -278,6 +280,7 @@ function selectionPanel() {
 }
 function refreshSettings() {
   const params = hatchParams();
+  toonEditor?.refresh(params);const drawing=document.querySelector('[data-view="hatch"]');if(drawing)drawing.textContent=engine.params.shadeMode==='toon'?'Toon':engine.params.shadeMode==='combined'?'Toon + hatching':'Hatching';
   for (const [key, control] of controls) control.update(params[key]);
   $('ink').value = params.ink; $('paper-color').value = params.paper; $('outline-color').value = params.outlineColor;
   $('depth-line-color').value=params.depthColor;$('depth-outline').checked=params.depthOutline;$('depth-across').checked=params.depthAcross;
@@ -291,7 +294,7 @@ async function loadFiles(files, source = null) {
   importBusy = true; $('import').disabled = true;
   for (const file of files) {
     $('loading').hidden = false; $('loading').textContent = `Reading ${file.name}…`;
-    try { await engine.load(file, { source }); tab('selection'); toast(`Imported ${file.name}`); } catch (e) { toast(`Could not import ${file.name}: ${e.message}`); }
+    try {const before=engine.models.length;await engine.load(file, { source });tab('selection');const count=engine.models.length-before;toast(`Imported ${file.name}${count>1?` · ${count} separate objects`:''}`);} catch (e) { toast(`Could not import ${file.name}: ${e.message}`); }
   }
   importBusy = false; $('import').disabled = false; $('loading').hidden = true; $('file').value = '';
 }
@@ -300,6 +303,7 @@ function viewMode(mode) { engine.setMode(mode); document.querySelectorAll('[data
 
 async function init() {
   try { engine = new EtchEngine($('viewport'), $('paper')); } catch (e) { $('loading').textContent = 'WebGL 2 is required. Open this app in an updated browser with graphics acceleration enabled.'; toast(e.message); return; }
+  toonEditor=new ToonEditor($('toon-settings'),{getStyle:hatchParams,onChange:patch=>{applyHatchPatch(patch);viewMode('hatch');},onScope:id=>{const entry=engine.models.find(e=>e.id===id);if(entry&&!entry.hatch)engine.setObjectParams(entry,{...engine.params});setHatchScope(entry||null);},resetButton});
   try { savedPresets = readSavedPresets(localStorage); } catch (e) { toast(e.message || 'Browser storage is unavailable.'); }
   populatePresets();
   for (const [parent, key, name, min, max, step, suffix] of definitions) controls.set(key, range($(parent), key, name, min, max, step, suffix, engine.params[key], value => applyHatchPatch({ [key]: value }), defaults[key]));
@@ -340,7 +344,7 @@ async function init() {
   document.querySelectorAll('[data-transform]').forEach(button => button.onclick = () => transformMode(button.dataset.transform));
   document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => viewMode(button.dataset.view));
   document.querySelectorAll('[data-demo]').forEach(button => button.onclick = async () => { try { const entry = await engine.demo(button.dataset.demo); engine.select(entry); engine.frame(entry); tab('selection'); } catch (e) { toast(e.message); } });
-  $('hatch-tab').onclick = () => tab('hatch'); $('selection-tab').onclick = () => tab('selection');$('depth-tab').onclick=()=>tab('depth');
+  $('hatch-tab').onclick = () => tab('hatch'); $('selection-tab').onclick = () => tab('selection');$('depth-tab').onclick=()=>tab('depth');$('toon-tab').onclick=()=>tab('toon');
   for (const [id, key, name] of [['ink', 'ink', 'Line color'], ['paper-color', 'paper', 'Paper'], ['outline-color', 'outlineColor', 'Outline color'],['depth-line-color','depthColor','Depth line color']]) {
     $(id).oninput = () => applyHatchPatch({ [key]: $(id).value }); attachReset($(id), name, defaults[key], () => applyHatchPatch({ [key]: defaults[key] }));
   }
