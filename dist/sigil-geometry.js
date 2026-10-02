@@ -1,13 +1,15 @@
 import { validateSigil, nodeMap, pointOf, radiusOf } from './sigil-data.js';
+import { adaptiveCurveParameters, adaptiveGrowthSamples, planSigilResolution } from './sigil-resolution.js';
 const add=(a,b)=>a.map((v,i)=>v+b[i]),sub=(a,b)=>a.map((v,i)=>v-b[i]),mul=(a,s)=>a.map(v=>v*s),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],length=a=>Math.hypot(...a),unit=a=>mul(a,1/(length(a)||1)),lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=(seed,i)=>{const n=Math.sin(seed*127.1+i*311.7)*43758.5453;return n-Math.floor(n);};
 function bezier(a,b,c,d,t){const u=1-t;return a.map((v,i)=>v*u*u*u+3*b[i]*u*u*t+3*c[i]*u*t*t+d[i]*t*t*t);}
-export function sampleCurve(curve,design) {
+export function sampleCurve(curve,design,step=null) {
   const map=nodeMap(design),s=design.settings,points=[];
   for(let segment=0;segment<curve.nodes.length-1;segment++) {
     const a=curve.nodes[segment],b=curve.nodes[segment+1],p=pointOf(a,map),q=pointOf(b,map);
-    for(let j=segment?1:0;j<=s.curveResolution;j++) {
-      const t=j/s.curveResolution,u=(segment+t)/(curve.nodes.length-1),r=radiusOf(a,map)+(radiusOf(b,map)-radiusOf(a,map))*t*t*(3-2*t);
+    const parameters=s.adaptiveResolution&&step?adaptiveCurveParameters(p,add(p,a.out),add(q,b.in),q,s,step):Array.from({length:s.curveResolution+1},(_,i)=>i/s.curveResolution);
+    for(let j=segment?1:0;j<parameters.length;j++) {
+      const t=parameters[j],u=(segment+t)/(curve.nodes.length-1),r=radiusOf(a,map)+(radiusOf(b,map)-radiusOf(a,map))*t*t*(3-2*t);
       points.push({p:bezier(p,add(p,a.out),add(q,b.in),q,t),r:r*s.radiusScale,u});
     }
   }
@@ -38,41 +40,46 @@ function frames(points) {
 }
 function at(points,u) {const target=points.at(-1).arc*u;let i=1;while(i<points.length-1&&points[i].arc<target)i++;const a=points[i-1],b=points[i],t=clamp((target-a.arc)/Math.max(.00001,b.arc-a.arc),0,1);return {p:lerp(a.p,b.p,t),r:a.r+(b.r-a.r)*t,t:unit(lerp(a.t,b.t,t)),n:unit(lerp(a.n,b.n,t)),b:unit(lerp(a.b,b.b,t)),u};}
 function sweep(points,profile='stem',flatten=1,clip=null){return {points,profile,flatten,clip};}
-function growth(points,s,index) {
+function growth(points,s,index,step=null) {
   const groups=[],total=points.at(-1).arc;
   if(s.thorns)for(let k=0,num=Math.min(80,Math.floor(total*s.thornDensity));k<num;k++) {
     const u=(k+.65)/(num+1),a=at(points,u),angle=s.thornSides==='spiral'?k*2.39996:s.thornSides==='paired'?0:k%2*Math.PI;
     for(let side=0;side<(s.thornSides==='paired'?2:1);side++) {
       const variation=1+(random(s.seed,index*997+k)-.5)*2*s.thornJitter,theta=angle+side*Math.PI,direction=unit(add(mul(a.n,Math.cos(theta)),mul(a.b,Math.sin(theta))));
       const extent=s.thornLength*variation,base=add(a.p,mul(direction,a.r*.65)),tip=add(base,add(mul(direction,extent),mul(a.t,extent*s.thornLean))),list=[];
-      for(let j=0;j<=8;j++){const t=j/8,p=lerp(base,tip,t);list.push({p:add(p,mul(a.t,Math.sin(Math.PI*t)*extent*s.thornCurve*.5)),r:Math.max(.001,s.thornRadius*variation*(1-t)**1.4),u:t,arc:t*extent});}
+      const samples=step?adaptiveGrowthSamples(extent,s.thornCurve,s,step,8):8;
+      for(let j=0;j<=samples;j++){const t=j/samples,p=lerp(base,tip,t);list.push({p:add(p,mul(a.t,Math.sin(Math.PI*t)*extent*s.thornCurve*.5)),r:Math.max(.001,s.thornRadius*variation*(1-t)**1.4),u:t,arc:t*extent});}
       frames(list);groups.push(sweep(list,'thorn',s.flatten));
     }
   }
   if(s.leaves)for(let k=0,num=Math.min(40,Math.floor(total*s.leafDensity));k<num;k++) {
     const a=at(points,(k+.75)/(num+1)),direction=mul(a.n,k%2?-1:1),base=add(a.p,mul(direction,a.r*.6)),list=[];
-    for(let j=0;j<=12;j++){const t=j/12,p=add(base,add(mul(direction,t*s.leafLength),mul(a.t,t*s.leafLength*.3)));list.push({p:add(p,mul(a.b,Math.sin(Math.PI*t)*s.leafLength*s.leafCurl*.45)),r:Math.max(.001,s.leafWidth*Math.sin(Math.PI*t)**.85),u:t,arc:t*s.leafLength});}
+    const samples=step?adaptiveGrowthSamples(s.leafLength,s.leafCurl,s,step,12):12;
+    for(let j=0;j<=samples;j++){const t=j/samples,p=add(base,add(mul(direction,t*s.leafLength),mul(a.t,t*s.leafLength*.3)));list.push({p:add(p,mul(a.b,Math.sin(Math.PI*t)*s.leafLength*s.leafCurl*.45)),r:Math.max(.001,s.leafWidth*Math.sin(Math.PI*t)**.85),u:t,arc:t*s.leafLength});}
     frames(list);groups.push(sweep(list,'leaf',s.leafThickness));
   }
   return groups;
 }
 function transformGroup(group,angle,mirror=false){const c=Math.cos(angle),s=Math.sin(angle),transform=p=>{const x=mirror?-p[0]:p[0];return [c*x-s*p[1],s*x+c*p[1],p[2]];};const points=group.points.map(p=>({...p,p:transform(p.p),t:transform(p.t),n:transform(p.n),b:transform(p.b)}));return {...group,points,clip:group.clip?group.clip.map(v=>v?{...v,p:transform(v.p),t:transform(v.t)}:null):null};}
-export function buildSigil(input,report=()=>{}) {
-  const start=performance.now(),design=validateSigil(input),s=design.settings,map=nodeMap(design),originals=[];
-  for(let i=0;i<design.curves.length;i++) {const curve=design.curves[i],points=sampleCurve(curve,design);if(points.at(-1).arc<.0001)continue;
+function sigilGroups(design,step=null) {
+  const s=design.settings,map=nodeMap(design),originals=[];
+  for(let i=0;i<design.curves.length;i++) {const curve=design.curves[i],points=sampleCurve(curve,design,step);if(points.at(-1).arc<.0001)continue;
     const first=points[0],last=points.at(-1),clip=s.cap==='flat'?[curve.nodes[0].link?null:{p:first.p,t:mul(first.t,-1),r:first.r},curve.nodes.at(-1).link?null:{p:last.p,t:last.t,r:last.r}]:null;
-    originals.push(sweep(points,'stem',s.flatten,clip),...growth(points,s,i));
+    originals.push(sweep(points,'stem',s.flatten,clip),...growth(points,s,i,step));
   }
   const poles=new Set(design.curves.flatMap(c=>c.nodes.filter(n=>n.link).map(n=>n.link)));
   for(const id of poles){const n=map.get(id),r=radiusOf(n,map)*s.radiusScale*s.poleBulge;originals.push(sweep([{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:0,arc:0},{p:pointOf(n,map),r,t:[0,1,0],n:[1,0,0],b:[0,0,1],u:1,arc:0}],'pole'));}
   if(!originals.length)throw new Error('Give the curves some length before generating the mesh.');
   const groups=[],signatures=new Set(),copies=s.symmetry==='radial'?s.radialCopies:s.symmetry==='mirror'?2:1;
   for(let copy=0;copy<copies;copy++)for(const group of originals){const transformed=transformGroup(group,s.symmetry==='radial'?copy*Math.PI*2/copies:0,s.symmetry==='mirror'&&copy===1),signature=transformed.points.map(p=>p.p.map(n=>n.toFixed(4)).join(',')).join(';')+'|'+group.profile;if(signatures.has(signature))continue;signatures.add(signature);groups.push(transformed);}
-  const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
-  for(const group of groups)for(const p of group.points){const envelope=p.r*(1+s.rippleAmplitude)*(1+s.ridgeDepth)*(1+s.bark)*Math.max(1,group.flatten)+s.blend*2;for(let a=0;a<3;a++){min[a]=Math.min(min[a],p.p[a]-envelope);max[a]=Math.max(max[a],p.p[a]+envelope);}}
-  const size=sub(max,min),step=Math.max(...size)/(s.meshResolution-8);for(let a=0;a<3;a++){min[a]-=step*3;max[a]+=step*3;}
-  const dimensions=min.map((v,a)=>Math.ceil((max[a]-v)/step)+1),[nx,ny,nz]=dimensions,total=nx*ny*nz;
-  if(total>4500000)throw new Error('Reduce mesh resolution for this volume.');
+  return groups;
+}
+export function buildSigil(input,report=()=>{}) {
+  const start=performance.now(),design=validateSigil(input),s=design.settings;
+  report({phase:s.adaptiveResolution?'Sampling fine details':'Sampling curves',progress:0});
+  let groups=sigilGroups(design),resolution=planSigilResolution(groups,s);
+  if(s.adaptiveResolution){groups=sigilGroups(design,resolution.step);resolution=planSigilResolution(groups,s);}
+  const {origin:min,dimensions,step,cells:total}=resolution,[nx,ny,nz]=dimensions;
   const field=new Float32Array(total).fill(1000),temporary=new Float32Array(total),marks=new Uint16Array(total);let groupId=0;
   report({phase:'Building volume',progress:0});
   for(const group of groups){groupId++;const touched=[],points=group.points;
@@ -115,5 +122,5 @@ export function buildSigil(input,report=()=>{}) {
     }
   }if(z%5===0)report({phase:'Closing surface',progress:60+Math.round(z/nz*35)});}
   if(!indices.length)throw new Error('The curves are too thin at this mesh resolution. Increase the resolution or vertex radius.');
-  return {position:new Float32Array(positions),normal:new Float32Array(normals),index:new Uint32Array(indices),ms:Math.round(performance.now()-start),grid:dimensions,step,triangles:indices.length/3};
+  return {position:new Float32Array(positions),normal:new Float32Array(normals),index:new Uint32Array(indices),ms:Math.round(performance.now()-start),grid:dimensions,step,triangles:indices.length/3,resolution};
 }

@@ -1,5 +1,5 @@
 export const sigilDefaults = {
-  curveResolution: 18, meshResolution: 92, radiusScale: 1, flatten: 1, bulge: .12, endTaper: .25, tipLength: .4, cap: 'rounded',
+  curveResolution: 18, meshResolution: 92, adaptiveResolution: false, adaptiveQuality: 2, adaptiveBoost: 3, radiusScale: 1, flatten: 1, bulge: .12, endTaper: .25, tipLength: .4, cap: 'rounded',
   blend: .055, poleBulge: 1.18, symmetry: 'mirror', radialCopies: 4, twist: 0,
   ripple: true, rippleAmplitude: .12, rippleFrequency: 8, ripplePhase: 0, rippleSharpness: 1,
   spineWave: 0, spineFrequency: 3, spineDepth: 0,
@@ -14,7 +14,7 @@ export const sigilControls = [
   ['Surface texture','ridges','Flute count',0,16,1], ['Surface texture','ridgeDepth','Flute depth',0,.5,.02], ['Surface texture','ridgeTwist','Spiral turns',-8,8,.1], ['Surface texture','bark','Bark relief',0,.3,.01], ['Surface texture','barkFrequency','Bark frequency',2,50,1],
   ['Thorns','thornDensity','Thorns per unit',.3,7,.1], ['Thorns','thornLength','Thorn length',.05,1.2,.02], ['Thorns','thornRadius','Thorn base radius',.025,.25,.005], ['Thorns','thornCurve','Thorn curvature',0,1,.05], ['Thorns','thornLean','Thorn lean',-.8,.8,.05], ['Thorns','thornJitter','Growth variation',0,.8,.05],
   ['Leaves','leafDensity','Leaves per unit',.3,4,.1], ['Leaves','leafLength','Leaf length',.1,1.2,.025], ['Leaves','leafWidth','Leaf width',.05,.45,.01], ['Leaves','leafThickness','Leaf thickness',.08,.5,.02], ['Leaves','leafCurl','Leaf curl',0,1,.05],
-  ['Resolution & finish','curveResolution','Samples per segment',6,64,2], ['Resolution & finish','meshResolution','Mesh grid resolution',40,160,4], ['Resolution & finish','seed','Pattern seed',1,999,1], ['Resolution & finish','metalness','Metallic finish',0,1,.05], ['Resolution & finish','roughness','Surface roughness',.05,1,.05]
+  ['Resolution & finish','curveResolution','Samples per segment',6,64,2], ['Resolution & finish','meshResolution','Mesh grid resolution',40,160,4], ['Resolution & finish','adaptiveQuality','Adaptive detail fidelity',1,4,.25], ['Resolution & finish','adaptiveBoost','Maximum detail boost',1,6,.25], ['Resolution & finish','seed','Pattern seed',1,999,1], ['Resolution & finish','metalness','Metallic finish',0,1,.05], ['Resolution & finish','roughness','Surface roughness',.05,1,.05]
 ];
 export const sigilPresets = [
   { id:'thorn',name:'Thorn sigil',settings:{...sigilDefaults} },
