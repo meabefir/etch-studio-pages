@@ -5,32 +5,36 @@ self.onmessage = ({ data }) => {
   try {
     const { id, width: w, height: h, normal, field, depth, params: p, scale } = data;
     const styles = data.objectParams || [], style = object => styles[object - 1] || p;
-    const count = w * h, mask = new Uint8Array(count), shade = new Float32Array(count), z = new Float32Array(count);
-    const dx = new Float32Array(count), dy = new Float32Array(count);
+    // Large exports keep the GPU's byte field and 16-bit depth instead of
+    // allocating seven full-size floating-point caches.
+    const packed=!!data.packed,count=w*h,mask=packed?data.mask:new Uint8Array(count),shade=packed?null:new Float32Array(count),z=packed?depth:new Float32Array(count);
+    const dx=packed?null:new Float32Array(count),dy=packed?null:new Float32Array(count),zScale=packed?data.far/65535:1;
+    const depthAt=i=>z[i]*zScale,shadeAt=i=>packed?field[i*3+2]/255:shade[i];
     let zmin = Infinity, zmax = -Infinity;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, j = ((h - 1 - y) * w + x) * 4;
-      mask[i] = normal[j + 3];
+      if(!packed)mask[i] = normal[j + 3];
       if (!mask[i]) continue;
-      shade[i] = field[j + 2] / 255;
-      dx[i] = field[j] / 127.5 - 1; dy[i] = field[j + 1] / 127.5 - 1;
-      z[i] = (depth[j] * 256 + depth[j + 1]) / 65535 * data.far;
-      zmin = Math.min(zmin, z[i]); zmax = Math.max(zmax, z[i]);
+      if(!packed){shade[i] = field[j + 2] / 255;dx[i] = field[j] / 127.5 - 1; dy[i] = field[j + 1] / 127.5 - 1;z[i] = (depth[j] * 256 + depth[j + 1]) / 65535 * data.far;}
+      zmin = Math.min(zmin, depthAt(i)); zmax = Math.max(zmax, depthAt(i));
     }
     // Screen-space cavity contrast is restrained; it affects density, never width.
     const radius = Math.max(2, Math.round(6 * scale));
+    const cavityOffsets=[-radius,radius,-radius*w,radius*w];
     for (let y = radius; y < h - radius; y++) for (let x = radius; x < w - radius; x++) {
       const i = y * w + x; if (!mask[i]) continue;
       let occlusion = 0;
-      for (const offset of [-radius, radius, -radius * w, radius * w]) {
+      for (const offset of cavityOffsets) {
         const j = i + offset;
-        if (mask[j] && z[i] - z[j] > 0.035 && z[i] - z[j] < 0.8) occlusion += Math.min(1, (z[i] - z[j]) * 3);
+        const jump=depthAt(i)-depthAt(j);if(mask[j]&&jump>.035&&jump<.8)occlusion+=Math.min(1,jump*3);
       }
-      shade[i] = Math.max(0, shade[i] - occlusion * 0.065 * style(mask[i]).cavity);
+      const brightness=Math.max(0,shadeAt(i)-occlusion*.065*style(mask[i]).cavity);if(packed)field[i*3+2]=Math.round(brightness*255);else shade[i]=brightness;
     }
     const minSpace = Math.min(p.spacing, ...styles.map(s => s.spacing)) * scale;
-    const spacing = new Float32Array(count), darkness = new Float32Array(count);
-    for (let i = 0; i < count; i++) if (mask[i]) {
+    const spacing=packed?null:new Float32Array(count),darkness=packed?null:new Float32Array(count);
+    const darknessAt=i=>packed?Math.max(0,1-Math.pow(shadeAt(i),style(mask[i]).contrast)):darkness[i];
+    const spacingAt=i=>{if(!packed)return spacing[i];const local=style(mask[i]),tone=Math.pow(shadeAt(i),local.contrast),distance=(depthAt(i)-zmin)/Math.max(.001,zmax-zmin);return (local.spacing+(local.lightSpacing-local.spacing)*tone)*scale*(1+distance*local.depthSpacing);};
+    if(!packed)for (let i = 0; i < count; i++) if (mask[i]) {
       const local = style(mask[i]), min = local.spacing * scale, max = local.lightSpacing * scale;
       darkness[i] = Math.max(0, 1 - Math.pow(shade[i], local.contrast));
       const distance = (z[i] - zmin) / Math.max(0.001, zmax - zmin);
@@ -52,7 +56,7 @@ self.onmessage = ({ data }) => {
         const j = i + (k % 2) + (k > 1 ? w : 0);
         if (mask[j] !== object) continue;
         const s = (k % 2 ? tx : 1 - tx) * (k > 1 ? ty : 1 - ty);
-        a += dx[j] * s; b += dy[j] * s; weight += s;
+        a += (packed?field[j*3]/127.5-1:dx[j]) * s; b += (packed?field[j*3+1]/127.5-1:dy[j]) * s; weight += s;
       }
       if (weight < 0.2 || Math.hypot(a, b) < 0.035) return null;
       const angle = 0.5 * Math.atan2(b, a) + style(object).angle * Math.PI / 180 + (cross ? Math.PI / 2 : 0);
@@ -65,14 +69,14 @@ self.onmessage = ({ data }) => {
     let lineCount = 0;
     function layer(cross) {
       const cell = Math.max(1, minSpace * 0.75), gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
-      const bins = new Array(gw * gh);
-      const eligible = i => i >= 0 && mask[i] && (!cross || style(mask[i]).cross) && darkness[i] >= (cross ? style(mask[i]).crossThreshold : style(mask[i]).highlight);
+      const sparse=gw*gh>1000000,bins=sparse?new Map():new Array(gw*gh),getBin=i=>sparse?bins.get(i):bins[i];
+      const eligible = i => i >= 0 && mask[i] && (!cross || style(mask[i]).cross) && darknessAt(i) >= (cross ? style(mask[i]).crossThreshold : style(mask[i]).highlight);
       const queue = [], seeds = [], step = Math.max(0.35, Math.min(1.25 * scale, minSpace * .6));
       function available(x, y, distance) {
         const object = mask[pixel(x, y)];
         const bx = Math.floor(x / cell), by = Math.floor(y / cell), range = Math.ceil(distance / cell), d2 = distance * distance;
         for (let yy = Math.max(0, by - range); yy <= Math.min(gh - 1, by + range); yy++) for (let xx = Math.max(0, bx - range); xx <= Math.min(gw - 1, bx + range); xx++) {
-          const bin = bins[yy * gw + xx]; if (!bin) continue;
+          const bin = getBin(yy * gw + xx); if (!bin) continue;
           for (let j = 0; j < bin.length; j += 3) if (bin[j + 2] === object && (bin[j] - x) ** 2 + (bin[j + 1] - y) ** 2 < d2) return false;
         }
         return true;
@@ -85,31 +89,31 @@ self.onmessage = ({ data }) => {
         const limit = Math.min(1800, Math.ceil(style(object).length * scale / (step * 2)));
         for (let j = 0; j < limit; j++) {
           const i = pixel(x, y); if (i < 0 || mask[i] !== object || !eligible(i)) break;
-          if (j > 2 && !available(x, y, spacing[i] * (cross ? 0.7 : 0.72))) break;
+          if (j > 2 && !available(x, y, spacingAt(i) * (cross ? 0.7 : 0.72))) break;
           const d1 = direction(x, y, vx, vy, cross); if (!d1) break;
           const d2 = direction(x + d1[0] * step * 0.5, y + d1[1] * step * 0.5, d1[0], d1[1], cross); if (!d2) break;
           const nx = x + d2[0] * step, ny = y + d2[1] * step, ni = pixel(nx, ny);
-          if (ni < 0 || mask[ni] !== object || Math.abs(z[ni] - z[i]) > Math.max(0.12, z[i] * 0.025)) break;
+          if (ni < 0 || mask[ni] !== object || Math.abs(depthAt(ni) - depthAt(i)) > Math.max(0.12, depthAt(i) * 0.025)) break;
           // Avoid looping indefinitely around a field singularity or closed contour.
           if (j > 24 && Math.hypot(nx - sx, ny - sy) < step * 1.8) break;
           points.push(x, y); x = nx; y = ny; vx = d2[0]; vy = d2[1];
         }
         return points;
       }
-      const tile = Math.max(3, Math.floor(minSpace * 1.15));
+      const tile = Math.max(3, Math.floor(minSpace * 1.15),packed?Math.ceil(Math.sqrt(count/(maxLines*4))):0);
       for (let y = 2; y < h - 2; y += tile) for (let x = 2; x < w - 2; x += tile) {
         // Deterministic jitter prevents a visible seed lattice without frame flicker.
         const hash = ((x * 73856093) ^ (y * 19349663)) >>> 0;
         const sx = x + (hash % 997) / 997 * tile * 0.65, sy = y + ((hash >>> 10) % 997) / 997 * tile * 0.65;
         const i = pixel(sx, sy);
-        if (eligible(i)) seeds.push([sx, sy, darkness[i]]);
+        if (eligible(i)) seeds.push([sx, sy, darknessAt(i)]);
       }
       seeds.sort((a, b) => b[2] - a[2]);
       let cursor = 0, fallback = 0, attempts = 0;
       while ((cursor < queue.length || fallback < seeds.length) && attempts++ < maxLines * 14 && lineCount < maxLines) {
         const seed = cursor < queue.length ? queue[cursor++] : seeds[fallback++];
         const [sx, sy] = seed, i = pixel(sx, sy);
-        if (i < 0 || !mask[i] || !eligible(i) || !available(sx, sy, spacing[i] * 0.95)) continue;
+        if (i < 0 || !mask[i] || !eligible(i) || !available(sx, sy, spacingAt(i) * 0.95)) continue;
         const backward = trace(sx, sy, -1), forward = trace(sx, sy, 1), points = [];
         for (let j = backward.length - 2; j >= 0; j -= 2) points.push(backward[j], backward[j + 1]);
         points.push(...forward.slice(2));
@@ -119,13 +123,13 @@ self.onmessage = ({ data }) => {
         lineCount++; allPaths.push({ object: mask[i], points });
         for (let j = 0; j < points.length; j += 4) {
           const x = points[j], y = points[j + 1], b = Math.floor(y / cell) * gw + Math.floor(x / cell);
-          (bins[b] ||= []).push(x, y, mask[i]);
+          let bin=getBin(b);if(!bin){bin=[];if(sparse)bins.set(b,bin);else bins[b]=bin;}bin.push(x,y,mask[i]);
         }
         // New seeds on both sides extend the same family of long parallel strokes.
         for (let j = 6; j < points.length - 2 && queue.length < maxLines * 12; j += Math.max(8, Math.round(14 * scale))) {
           const x = points[j], y = points[j + 1], d = direction(x, y, 1, 0, cross), pi = pixel(x, y);
           if (!d || pi < 0) continue;
-          const distance = spacing[pi] * 1.08;
+          const distance = spacingAt(pi) * 1.08;
           queue.push([x - d[1] * distance, y + d[0] * distance], [x + d[1] * distance, y - d[0] * distance]);
         }
       }
@@ -139,7 +143,7 @@ self.onmessage = ({ data }) => {
       for (let y = 0; y < h; y++) { let x = 0; while (x < w) { if (mask[y*w+x] !== object) { x++; continue; } const start = x; while (x < w && mask[y*w+x] === object) x++; ctx.fillRect(start, y, x-start, 1); } }
     }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const depthPaths=depthContours(mask,z,w,h,scale,style);
+    const depthPaths=depthContours(mask,z,w,h,scale,style,zScale);
     for (const object of objectIds) {
       const local = style(object); ctx.strokeStyle = local.ink; ctx.lineWidth = local.width * scale; ctx.beginPath();
       for (const { object: owner, points: path } of allPaths) { if (owner !== object) continue; ctx.moveTo(path[0], path[1]); for (let i = 2; i < path.length; i += 2) ctx.lineTo(path[i], path[i + 1]); }
@@ -173,7 +177,8 @@ self.onmessage = ({ data }) => {
   } catch (e) { self.postMessage({ id: data.id, error: e.message }); }
 };
 
-function depthContours(mask,z,w,h,scale,style){
+function depthContours(mask,z,w,h,scale,style,zScale=1){
+  const depthAt=i=>z[i]*zScale;
   const ids=[...new Set(mask)].filter(Boolean);if(!ids.some(id=>style(id).depthOutline))return [];
   const count=w*h,strength=new Float32Array(count),direction=new Int8Array(count),edges=new Uint8Array(count);
   const axes=[[1,0],[0,1],[-1,0],[0,-1]];
@@ -185,12 +190,12 @@ function depthContours(mask,z,w,h,scale,style){
     const r=Math.max(1,Math.round(p.depthRadius*scale));
     for(let d=0;d<4;d++){
       const [vx,vy]=axes[d],j=pixel(x+vx*r,y+vy*r);if(j<0||!mask[j]||(!p.depthAcross&&mask[j]!==object))continue;
-      const jump=z[j]-z[i];if(jump<=p.depthFloor)continue;
+      const jump=depthAt(j)-depthAt(i);if(jump<=p.depthFloor)continue;
       const a=pixel(x-vx*r,y-vy*r),b=pixel(x+vx*r*2,y+vy*r*2);let slope=0,samples=0;
-      if(a>=0&&mask[a]===object){slope+=Math.abs(z[i]-z[a]);samples++;}
-      if(b>=0&&mask[b]===mask[j]){slope+=Math.abs(z[b]-z[j]);samples++;}
+      if(a>=0&&mask[a]===object){slope+=Math.abs(depthAt(i)-depthAt(a));samples++;}
+      if(b>=0&&mask[b]===mask[j]){slope+=Math.abs(depthAt(b)-depthAt(j));samples++;}
       const residual=jump-(samples?slope/samples:0)*p.depthSlope;
-      if(residual<=p.depthFloor)continue;const score=residual/Math.max(.02,z[i]);
+      if(residual<=p.depthFloor)continue;const score=residual/Math.max(.02,depthAt(i));
       if(score>=p.depthThreshold&&score>strength[i]){strength[i]=score;direction[i]=d;}
     }
   }

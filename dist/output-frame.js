@@ -44,6 +44,7 @@ export function warpFramedBuffers(normal,field,depth,w,h,capture,output,source){
     const sx=Math.floor(((q[0]-source.x)*source.zoom/aspect+1)*w/2),sy=Math.floor(((q[1]-source.y)*source.zoom+1)*h/2);if(sx<0||sy<0||sx>=w||sy>=h)continue;
     const src=(sy*w+sx)*4,dst=(y*w+x)*4;if(!normal[src+3])continue;
     for(let k=0;k<4;k++){n[dst+k]=normal[src+k];f[dst+k]=field[src+k];if(d)d[dst+k]=depth[src+k];}
+    if(!field.length)continue;
     const angle=.5*Math.atan2(field[src+1]/127.5-1,field[src]/127.5-1),vx=Math.cos(angle),vy=-Math.sin(angle),qx=lensMap(px+epsilon,py,capture.lens)||q,qy=lensMap(px,py+epsilon,capture.lens)||q;
     const a=(qx[0]-q[0])/epsilon,b=(qy[0]-q[0])/epsilon,c=(qx[1]-q[1])/epsilon,e=(qy[1]-q[1])/epsilon,det=a*e-b*c;if(Math.abs(det)<1e-8)continue;
     const ux=(e*vx-b*vy)/det,uy=-(-c*vx+a*vy)/det,length=Math.hypot(ux,uy)||1;f[dst]=Math.round(((ux*ux-uy*uy)/(length*length)+1)*127.5);f[dst+1]=Math.round((2*ux*uy/(length*length)+1)*127.5);
