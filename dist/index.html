@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etch · Hatching Studio</title>
+  <meta name="description" content="Turn 3D geometry into flowing linework. A screen-space hatching studio for OBJ and GLB models.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171b22'/%3E%3Cpath d='M8 23L18 7M14 25L24 9M7 15L11 8M22 24L25 19' stroke='%23e0a76b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">{"imports":{"three":"./vendor/build/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="./" aria-label="Etch studio"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 24L19 7M14 25L25 8M7 15L12 7M22 25L26 19"/></svg><strong>etch</strong><span>HATCHING STUDIO</span></a>
+    <div class="header-actions"><span class="local-note">Models stay on your device</span><button id="export" class="button">Export PNG</button><button id="import" class="button accent">Import model <span class="plus">+</span></button></div>
+    <input id="file" type="file" accept=".obj,.glb" multiple hidden>
+  </header>
+  <main class="workspace">
+    <aside class="panel scene-panel" aria-label="Scene">
+      <div class="panel-title"><h1>Scene</h1><span id="scene-count" class="meta">1 object</span></div>
+      <div class="section-caption">MODELS</div>
+      <div id="model-list" class="scene-list"></div>
+      <button id="import-secondary" class="button subtle full">Import OBJ / GLB</button>
+      <details class="demo-picker"><summary>Add a study shape</summary><div class="row"><button data-demo="knot">Knot</button><button data-demo="sphere">Sphere</button><button data-demo="vessel">Vessel</button></div></details>
+      <div class="section-caption light-caption">LIGHTS <span id="light-count"></span></div>
+      <div id="light-list" class="scene-list"></div>
+      <div class="row add-lights"><button id="add-sun" class="button subtle">☼ Sun</button><button id="add-point" class="button subtle">◉ Point</button></div>
+      <div class="scene-bottom"><button id="delete" class="button danger full" disabled>Delete selected</button><details class="controls-help"><summary>Navigation & shortcuts</summary><p>Drag to orbit · Right-drag to pan<br>Scroll to zoom · Click to select</p><dl><dt>Move / Rotate / Scale</dt><dd>W / E / R</dd><dt>Frame selected / scene</dt><dd>F</dd><dt>Delete selected</dt><dd>Del</dd><dt>Clear selection</dt><dd>Esc</dd></dl></details></div>
+    </aside>
+    <section class="stage" aria-label="Drawing workspace">
+      <div class="stage-toolbar"><div class="segmented view-modes" role="group" aria-label="View mode"><button data-view="hatch" class="active">Hatching</button><button data-view="solid">Shaded</button></div><span class="toolbar-divider"></span><div class="transform-modes" role="group" aria-label="Transform mode"><button data-transform="translate" class="active" title="Move (W)" aria-label="Move">↔</button><button data-transform="rotate" title="Rotate (E)" aria-label="Rotate">⟳</button><button data-transform="scale" title="Scale (R)" aria-label="Scale">⤢</button></div><select id="space" aria-label="Transform space"><option value="world">World</option><option value="local">Local</option></select><button id="frame" title="Frame selected or scene (F)" class="frame-button">Frame</button></div>
+      <div id="viewport" class="viewport"><canvas id="paper" aria-label="Hatching render"></canvas><div id="loading" class="loading">Preparing geometry…</div><div id="drop-hint">Drop OBJ or GLB models here</div></div>
+      <div class="stage-footer"><span id="status" role="status">Preparing the study…</span><div><label><input id="grid" type="checkbox"> Grid</label><button id="reset-camera">Reset view</button></div></div>
+    </section>
+    <aside class="panel settings-panel" aria-label="Render settings">
+      <div class="inspector-tabs" role="tablist"><button id="hatch-tab" role="tab" aria-selected="true" class="active">Hatching</button><button id="selection-tab" role="tab" aria-selected="false">Selection</button></div>
+      <div id="hatch-settings" class="settings-content" role="tabpanel" aria-labelledby="hatch-tab">
+        <div class="preset-row"><label for="preset">Style</label><select id="preset"><option value="engraving">Engraving</option><option value="fine">Fine pen</option><option value="open">Open strokes</option></select></div>
+        <div class="color-row"><label>Line color <input type="color" id="ink" value="#1b2026"></label><label>Paper <input type="color" id="paper-color" value="#ffffff"></label></div>
+        <div class="setting-section"><h2>Stroke</h2><div id="stroke-controls"></div></div>
+        <div class="setting-section"><h2>Geometry flow</h2><div id="flow-controls"></div><p class="hint">Follows surface curvature. Long strokes stop at occlusions and sharp changes.</p></div>
+        <div class="setting-section"><h2>Light & depth</h2><div id="tone-controls"></div></div>
+        <div class="setting-section"><label class="check-heading"><input type="checkbox" id="cross" checked> Cross-hatching</label><div id="cross-controls"></div></div>
+        <div class="setting-section"><label class="check-heading"><input type="checkbox" id="outline" checked> Outer outline</label><div id="outline-controls"></div><label class="inline-color">Outline color <input id="outline-color" type="color" value="#1b2026"></label></div>
+        <div class="setting-section quality-row"><label for="quality">Render detail</label><select id="quality"><option value="800">Fast · 800 px</option><option value="1100" selected>Balanced · 1100 px</option><option value="1600">Fine · 1600 px</option><option value="2200">Print · 2200 px</option></select></div>
+        <button id="reset-settings" class="button subtle full">Reset hatching settings</button>
+      </div>
+      <div id="selection-settings" class="settings-content" role="tabpanel" aria-labelledby="selection-tab" hidden></div>
+    </aside>
+  </main>
+  <dialog id="export-dialog" aria-labelledby="export-title"><div class="export-title"><h2 id="export-title">Render preview</h2><button id="close-export" aria-label="Close render preview">✕</button></div><img id="export-image" alt="Rendered hatching illustration"><div class="export-footer"><span id="export-size"></span><a id="download-image" class="button accent" download="etch-render.png">Download PNG</a></div></dialog>
+  <div id="toast" class="toast" role="alert" hidden></div>
+</body>
+</html>
