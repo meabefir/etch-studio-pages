@@ -18,6 +18,7 @@
   <main class="workspace">
     <aside class="panel scene-panel" aria-label="Scene">
       <div class="panel-title"><h1>Scene</h1><span id="scene-count" class="meta">1 object</span></div>
+      <div class="scene-storage"><label for="saved-scene">Saved scenes</label><select id="saved-scene" aria-label="Saved scenes"></select><div class="row"><button id="load-scene" class="button subtle">Load scene</button><button id="save-scene" class="button">Save scene</button></div></div>
       <div class="section-caption">MODELS</div>
       <div id="model-list" class="scene-list"></div>
       <button id="import-secondary" class="button subtle full">Import OBJ / GLB</button>
@@ -25,6 +26,8 @@
       <div class="section-caption light-caption">LIGHTS <span id="light-count"></span></div>
       <div id="light-list" class="scene-list"></div>
       <div class="row add-lights"><button id="add-sun" class="button subtle">☼ Sun</button><button id="add-point" class="button subtle">◉ Point</button></div>
+      <div class="section-caption light-caption">CAMERAS <span id="camera-count"></span></div>
+      <div id="camera-list" class="scene-list"></div><button id="add-camera" class="button subtle full">＋ Add camera</button><p class="hint">Navigation moves the active camera. Add another to keep a separate view.</p>
       <div class="scene-bottom"><button id="delete" class="button danger full" disabled>Delete selected</button><details class="controls-help"><summary>Navigation & shortcuts</summary><p>Drag to orbit · Right-drag to pan<br>Scroll to zoom · Click to select</p><dl><dt>Move / Rotate / Scale</dt><dd>W / E / R</dd><dt>Frame selected / scene</dt><dd>F</dd><dt>Delete selected</dt><dd>Del</dd><dt>Clear selection</dt><dd>Esc</dd></dl></details></div>
     </aside>
     <section class="stage" aria-label="Drawing workspace">
@@ -35,6 +38,7 @@
     <aside class="panel settings-panel" aria-label="Render settings">
       <div class="inspector-tabs" role="tablist"><button id="hatch-tab" role="tab" aria-selected="true" class="active">Hatching</button><button id="selection-tab" role="tab" aria-selected="false">Selection</button></div>
       <div id="hatch-settings" class="settings-content" role="tabpanel" aria-labelledby="hatch-tab">
+        <div class="hatch-scope"><label for="hatch-scope">Hatching setup</label><select id="hatch-scope"><option value="global">Global · all inherited objects</option></select><p id="scope-hint" class="hint">Objects use the global setup unless given their own style.</p></div>
         <div class="preset-block"><div class="preset-row"><label for="preset">Preset</label><select id="preset"></select></div><div class="preset-actions"><button id="load-preset" class="button subtle">Load preset</button><button id="save-preset" class="button">Save preset</button></div><p id="preset-status" class="hint" aria-live="polite">Built-in preset</p></div>
         <div class="color-row"><div class="color-property"><label>Line color <input type="color" id="ink" value="#1b2026"></label></div><div class="color-property"><label>Paper <input type="color" id="paper-color" value="#ffffff"></label></div></div>
         <div class="setting-section"><h2>Stroke</h2><div id="stroke-controls"></div></div>
@@ -50,6 +54,8 @@
   </main>
   <dialog id="export-dialog" aria-labelledby="export-title"><div class="export-title"><h2 id="export-title">Render preview</h2><button id="close-export" aria-label="Close render preview">✕</button></div><img id="export-image" alt="Rendered hatching illustration"><div class="export-footer"><span id="export-size"></span><a id="download-image" class="button accent" download="etch-render.png">Download PNG</a></div></dialog>
   <dialog id="save-preset-dialog" aria-labelledby="save-preset-title"><form id="save-preset-form"><h2 id="save-preset-title">Save hatching preset</h2><label for="preset-name">Preset name</label><input id="preset-name" type="text" maxlength="60" required placeholder="e.g. Dark ink study" autocomplete="off"><p class="hint">Saved in this browser. Saving with an existing name updates that preset.</p><div class="dialog-actions"><button id="cancel-save-preset" type="button" class="button subtle">Cancel</button><button type="submit" class="button accent">Save</button></div></form></dialog>
+  <dialog id="save-scene-dialog" class="form-dialog" aria-labelledby="save-scene-title"><form id="save-scene-form"><h2 id="save-scene-title">Save scene</h2><label for="scene-name">Scene name</label><input id="scene-name" maxlength="100" required autocomplete="off"><p class="hint">Stored in this browser. Includes cameras, lights, transforms and hatching styles. Model geometry is kept in its original local file.</p><div class="dialog-actions"><button id="cancel-save-scene" type="button" class="button subtle">Cancel</button><button class="button accent" type="submit">Save</button></div></form></dialog>
+  <dialog id="model-path-dialog" class="form-dialog" aria-labelledby="model-path-title"><form id="model-path-form"><h2 id="model-path-title">Local model file</h2><p id="model-path-description" class="hint"></p><label for="model-path-input">Full model file path</label><input id="model-path-input" type="text" autocomplete="off" placeholder="C:\Models\sculpture.glb"><p id="model-path-error" class="inline-error" role="alert" hidden></p><p id="path-service-hint" class="hint">The local server opens OBJ and GLB files directly from this path.</p><div class="dialog-actions"><button id="cancel-model-path" class="button subtle" type="button">Cancel</button><button id="browse-model-path" class="button" type="button">Browse file</button><button id="confirm-model-path" class="button accent" type="submit">Use path</button></div></form><input id="relink-file" type="file" accept=".obj,.glb" hidden></dialog>
   <div id="toast" class="toast" role="alert" hidden></div>
 </body>
 </html>

@@ -1,12 +1,26 @@
 import { EtchEngine } from './engine.js';
 import { defaults, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
+import { cameraDefaults, projections } from './lenses.js';
+import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js';
+
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
 function tab(which) { const hatch = which === 'hatch'; $('hatch-settings').hidden = !hatch; $('selection-settings').hidden = hatch; for (const [id, active] of [['hatch-tab', hatch], ['selection-tab', !hatch]]) { $(id).classList.toggle('active', active); $(id).setAttribute('aria-selected', String(active)); } }
 const controls = new Map();
-let savedPresets = [], selectedPresetId = 'engraving';
+let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
+const cameraControls = new Map();
+const hatchParams = () => hatchTarget ? engine.styleFor(hatchTarget) : engine.params;
+function setHatch(patch) { if (hatchTarget) engine.setObjectParams(hatchTarget, patch); else engine.setParams(patch); }
+function populateHatchScope() {
+  if (hatchTarget && !engine.models.includes(hatchTarget)) hatchTarget = null;
+  $('hatch-scope').replaceChildren(new Option('Global · inherited objects', 'global'), ...engine.models.map(e => new Option(`${e.name}${e.hatch ? ' · own style' : ' · global'}`, e.id)));
+  $('hatch-scope').value = hatchTarget?.id || 'global';
+  $('scope-hint').textContent = hatchTarget ? `Editing ${hatchTarget.name}. Render detail remains global; paper tint applies to this object's surface.` : 'Objects use the global setup unless given their own style.';
+}
+function setHatchScope(entry) { hatchTarget = entry; populateHatchScope(); refreshSettings(); }
+
 
 function resetButton(name, defaultValue, callback) {
   const button = document.createElement('button'); button.type = 'button'; button.className = 'property-reset'; button.textContent = '↺';
@@ -25,7 +39,7 @@ function attachReset(input, name, defaultValue, callback) {
 function currentPreset() { return [...builtinPresets, ...savedPresets].find(item => item.id === selectedPresetId); }
 function updatePresetStatus() {
   const preset = currentPreset();
-  const modified = !preset || !settingsMatch(engine.params, preset.settings);
+  const modified = !preset || !settingsMatch(hatchParams(), preset.settings);
   $('preset-status').textContent = modified ? 'Modified · save to keep these settings' : selectedPresetId.startsWith('saved-') ? 'Saved in this browser' : 'Built-in preset';
   $('preset-status').classList.toggle('modified', modified); $('load-preset').disabled = !preset;
 }
@@ -43,43 +57,48 @@ function populatePresets() {
 function loadPreset(id) {
   const preset = [...builtinPresets, ...savedPresets].find(item => item.id === id);
   if (!preset) return toast('That preset is no longer available.');
-  selectedPresetId = id; $('preset').value = id; engine.setParams({ ...preset.settings }); refreshSettings();
+  selectedPresetId = id; $('preset').value = id; setHatch({ ...preset.settings }); refreshSettings();
 }
 function applyHatchPatch(patch) {
   const adjusted = { ...patch };
-  if ('spacing' in patch && patch.spacing > (patch.lightSpacing ?? engine.params.lightSpacing)) adjusted.lightSpacing = patch.spacing;
-  if ('lightSpacing' in patch && patch.lightSpacing < (patch.spacing ?? engine.params.spacing)) adjusted.spacing = patch.lightSpacing;
-  engine.setParams(adjusted); refreshSettings();
+  if ('spacing' in patch && patch.spacing > (patch.lightSpacing ?? hatchParams().lightSpacing)) adjusted.lightSpacing = patch.spacing;
+  if ('lightSpacing' in patch && patch.lightSpacing < (patch.spacing ?? hatchParams().spacing)) adjusted.spacing = patch.lightSpacing;
+  setHatch(adjusted); refreshSettings();
 }
 function range(parent, key, name, min, max, step, suffix, value, callback, defaultValue = value) {
   const wrap = document.createElement('div'); wrap.className = 'control';
   const labelRow = document.createElement('div'); labelRow.className = 'control-label';
   const label = document.createElement('label'), output = document.createElement('output'), input = document.createElement('input');
   input.id = `parameter-${key}`; input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = value; label.htmlFor = input.id; label.textContent = name; output.htmlFor = input.id;
-  const update = v => { input.value = v; output.value = suffix === '%' ? `${Math.round(v * 100)}%` : `${Number(Number(v).toFixed(2))}${suffix}`; };
+  const update = v => { if (key === 'camera-size') input.max = Math.max(30, Math.ceil(v)); input.value = v; output.value = suffix === '%' ? `${Math.round(v * 100)}%` : `${Number(Number(v).toFixed(2))}${suffix}`; };
   update(value); input.addEventListener('input', () => { update(+input.value); callback(+input.value); });
   const actions = document.createElement('div'); actions.className = 'property-actions';
   actions.append(output, resetButton(name, defaultValue, () => { update(defaultValue); callback(defaultValue); }));
   labelRow.append(label, actions); wrap.append(labelRow, input); parent.append(wrap); return { input, update, wrap };
 }
 function sceneList() {
-  for (const [list, entries] of [[$('model-list'), engine.models], [$('light-list'), engine.lights]]) {
+  for (const [list, entries] of [[$('model-list'), engine.models], [$('light-list'), engine.lights], [$('camera-list'), engine.cameras]]) {
     list.replaceChildren();
     if (!entries.length) { const empty = document.createElement('div'); empty.className = 'hint'; empty.textContent = list.id === 'model-list' ? 'Import a model to begin.' : 'Add a sun or point light.'; list.append(empty); }
     for (const entry of entries) {
       const row = document.createElement('div'); row.className = `scene-item${engine.selected === entry ? ' selected' : ''}`;
       const select = document.createElement('button'); select.className = 'select-item'; select.title = entry.name; select.setAttribute('aria-label', `Select ${entry.name}`);
-      const icon = document.createElement('span'); icon.className = 'object-icon'; icon.textContent = entry.type === 'model' ? '◇' : entry.lightType === 'sun' ? '☼' : '◉';
-      const name = document.createElement('span'); name.className = 'item-name'; name.textContent = entry.name;
+      const icon = document.createElement('span'); icon.className = 'object-icon'; icon.textContent = entry.type === 'model' ? '◇' : entry.type === 'camera' ? '▣' : entry.lightType === 'sun' ? '☼' : '◉';
+      const name = document.createElement('span'); name.className = 'item-name'; name.textContent = entry.name + (entry === engine.activeCamera ? ' · active' : '');
       select.append(icon, name); select.onclick = () => { engine.select(entry); tab('selection'); };
       const visibility = document.createElement('button'); visibility.className = 'visibility'; visibility.textContent = entry.visible ? '◉' : '○'; visibility.title = entry.visible ? 'Hide' : 'Show'; visibility.setAttribute('aria-label', `${entry.visible ? 'Hide' : 'Show'} ${entry.name}`); visibility.setAttribute('aria-pressed', String(entry.visible)); visibility.onclick = () => engine.setVisible(entry, !entry.visible);
+      if (entry.type === 'camera') { row.append(select); list.append(row); continue; }
       row.append(select, visibility, resetButton(`${entry.name} visibility`, 'visible', () => engine.setVisible(entry, true))); list.append(row);
     }
   }
   $('scene-count').textContent = `${engine.models.length} ${engine.models.length === 1 ? 'object' : 'objects'}`;
   $('light-count').textContent = `${engine.lights.length} / 8`;
   $('add-sun').disabled = $('add-point').disabled = engine.lights.length >= 8;
-  $('delete').disabled = !engine.selected;
+  $('camera-count').textContent = engine.cameras.length;
+  $('add-camera').disabled = engine.cameras.length >= 100;
+  $('delete').disabled = !engine.selected || (engine.selected.type === 'camera' && engine.cameras.length === 1);
+  populateHatchScope();
+  refreshSettings();
 }
 const transformInputs = [];
 function xyz(parent, heading, values, callback, prefix, defaultValues, onReset = callback) {
@@ -101,11 +120,121 @@ function syncTransform() {
   for (const { input, prefix, axis } of transformInputs) if (document.activeElement !== input) input.value = Number((prefix === 'rotation' ? entry.object.rotation[axis] * 180 / Math.PI : prefix === 'target' ? entry.target[axis] : entry.object[prefix][axis]).toFixed(3));
   if (entry.type === 'light') entry.helper.update();
 }
+function cameraPanel(panel, entry) {
+  const update = () => { if (entry.object.position.distanceTo(entry.target) < .001) entry.target.z -= .01; engine.updateCamera(entry); syncTransform(); };
+  xyz(panel, 'Position', entry.object.position.toArray(), (axis, value) => { entry.object.position[axis] = value; update(); }, 'position', cameraDefaults.position);
+  xyz(panel, 'Aim at', entry.target.toArray(), (axis, value) => { entry.target[axis] = value; update(); }, 'target', cameraDefaults.target);
+  const section = document.createElement('div'); section.className = 'setting-section';
+  const label = document.createElement('label'); label.className = 'inline-color'; label.textContent = 'Projection';
+  const select = document.createElement('select'); select.setAttribute('aria-label', 'Camera projection'); for (const [value, name] of projections) select.add(new Option(name, value)); select.value = entry.projection;
+  select.onchange = () => { entry.projection = select.value; update(); selectionPanel(); }; label.append(select); section.append(label); panel.append(section);
+  attachReset(select, 'Camera projection', 'Perspective', () => { entry.projection = cameraDefaults.projection; update(); selectionPanel(); });
+  const fov = range(section, 'camera-fov', 'Field of view', 10, 170, 1, '°', entry.fov, value => { entry.fov = value; update(); }, cameraDefaults.fov); fov.input.disabled = entry.projection === 'orthographic'; cameraControls.set('fov', fov);
+  if (entry.projection === 'orthographic') cameraControls.set('orthoSize', range(section, 'camera-size', 'View height', .1, 30, .1, '', entry.orthoSize, value => { entry.orthoSize = value; update(); }, cameraDefaults.orthoSize));
+  if (['barrel', 'pincushion'].includes(entry.projection)) cameraControls.set('distortion', range(section, 'camera-distortion', 'Lens distortion', 0, 1, .01, '%', entry.distortion, value => { entry.distortion = value; update(); }, cameraDefaults.distortion));
+  const clips = document.createElement('div'); clips.className = 'clip-fields';
+  for (const [key, title] of [['near', 'Near clipping'], ['far', 'Far clipping']]) {
+    const label = document.createElement('label'); label.textContent = title; const input = document.createElement('input'); input.type = 'number'; input.step = '.01'; input.min = key === 'near' ? '.001' : '.01'; input.max = key === 'near' ? '1000' : '10000000'; input.value = entry[key]; input.setAttribute('aria-label', title);
+    const apply = value => { if (!Number.isFinite(value) || value < +input.min || value > +input.max || (key === 'near' ? value >= entry.far : value <= entry.near)) { toast('Near clipping must be positive and below far clipping.'); input.value = entry[key]; return; } entry[key] = value; input.value = value; update(); };
+    input.onchange = () => apply(+input.value); label.append(input); clips.append(label); attachReset(input, title, cameraDefaults[key], () => apply(cameraDefaults[key]));
+  }
+  section.append(clips);
+  const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = entry.projection === 'fisheye' ? 'Equidistant circular fisheye, up to 170°. Frame adjusts the active view. Hatch widths remain constant after distortion.' : entry.projection === 'orthographic' ? 'Parallel projection. Scroll changes view height; distance does not change object size.' : 'Orbit, pan and zoom update only this camera. Select another camera to restore its view.'; panel.append(hint);
+}
+function modelExtras(panel, entry) {
+  const section = document.createElement('div'); section.className = 'setting-section'; panel.append(section);
+  const label = document.createElement('label'); label.className = 'checkbox-row'; const check = document.createElement('input'); check.type = 'checkbox'; check.checked = Boolean(entry.hatch); check.setAttribute('aria-label', 'Use separate hatching setup');
+  const setOwn = enabled => { entry.hatch = enabled ? { ...engine.params } : null; engine.invalidate(); engine.draw(); engine.schedule(); if (!enabled && hatchTarget === entry) setHatchScope(null); sceneList(); selectionPanel(); };
+  check.onchange = () => setOwn(check.checked); label.append(check, document.createTextNode('Use separate hatching setup')); section.append(label); attachReset(check, 'Separate hatching setup', 'off', () => setOwn(false));
+  const edit = document.createElement('button'); edit.className = 'button subtle full'; edit.textContent = 'Edit this object’s hatching'; edit.onclick = () => { if (!entry.hatch) engine.setObjectParams(entry, { ...engine.params }); setHatchScope(entry); tab('hatch'); }; section.append(edit);
+  const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = entry.hatch ? 'This object keeps its own style when global settings change.' : 'This object follows the global hatching setup.'; section.append(hint);
+  if (entry.source?.kind === 'file') {
+    const label = document.createElement('label'); label.className = 'file-reference'; label.textContent = 'Local model path'; const input = document.createElement('input'); input.type = 'text'; input.value = entry.source.path; input.placeholder = 'Enter full path for scene saves'; input.setAttribute('aria-label', 'Local model path'); const original = entry.source.path;
+    input.onchange = () => { entry.source.path = input.value.trim().replace(/^"|"$/g, ''); }; label.append(input); section.append(label); attachReset(input, 'Local model path', original || 'empty', () => { input.value = entry.source.path = original; });
+  }
+}
+function populateScenes() {
+  if (!savedScenes.some(s => s.id === selectedSceneId)) selectedSceneId = savedScenes[0]?.id || '';
+  $('saved-scene').replaceChildren(...(savedScenes.length ? savedScenes.map(s => new Option(s.name, s.id)) : [new Option('No saved scenes yet', '')])); $('saved-scene').value = selectedSceneId;
+  $('load-scene').disabled = sceneBusy || !selectedSceneId; $('save-scene').disabled = sceneBusy;
+}
+function requestModelPath({ title, description, path = '', error = '', browse = 'relink', infoOnly = false }) {
+  return new Promise(resolve => {
+    const dialog = $('model-path-dialog'), form = $('model-path-form');
+    $('model-path-title').textContent = title; $('model-path-description').textContent = description; $('model-path-input').value = path; $('model-path-error').textContent = error; $('model-path-error').hidden = !error;
+    $('path-service-hint').textContent = localPaths ? 'Use the full path to the original file. In Windows Explorer, Shift + right-click the file → Copy as path.' : 'Direct paths require the included local server. Browse to reselect the model file.';
+    $('confirm-model-path').disabled = !localPaths; $('browse-model-path').hidden = infoOnly; $('relink-file').value = '';
+    let result = null;
+    const clean = () => { dialog.removeEventListener('close', clean); form.onsubmit = null; $('relink-file').onchange = null; resolve(result); };
+    dialog.addEventListener('close', clean);
+    $('cancel-model-path').onclick = () => dialog.close(); $('browse-model-path').onclick = () => $('relink-file').click();
+    $('relink-file').onchange = () => { const file = $('relink-file').files[0]; if (!file) return; result = { file, source: { kind: 'file', path: '', filename: file.name } }; dialog.close(); };
+    form.onsubmit = async e => {
+      e.preventDefault(); const path = $('model-path-input').value.trim().replace(/^"|"$/g, ''); $('confirm-model-path').disabled = true;
+      try { const value = await localModel(path, infoOnly); result = infoOnly ? { source: { kind: 'file', path, filename: value.filename } } : { file: value, source: { kind: 'file', path, filename: value.name } }; dialog.close(); }
+      catch (error) { $('model-path-error').textContent = error.message; $('model-path-error').hidden = false; }
+      finally { $('confirm-model-path').disabled = !localPaths; }
+    };
+    dialog.showModal(); $('model-path-input').focus();
+  });
+}
+async function restoreScene(state) {
+  const staged = []; sceneBusy = true; importBusy = true; populateScenes(); $('loading').hidden = false;
+  try {
+    for (const saved of state.models) {
+      $('loading').textContent = `Loading ${saved.name}…`; let entry;
+      if (saved.source.kind === 'demo') entry = await engine.demo(saved.source.shape, false);
+      else {
+        let file, source = { ...saved.source }, error;
+        if (localPaths && source.path) try { file = await localModel(source.path); } catch (e) { error = e.message; }
+        else error = source.path ? 'The local file service is unavailable. Reselect this model file.' : 'The saved model has no full local path. Reselect it or enter its path.';
+        while (!entry) {
+          if (!file) { const result = await requestModelPath({ title: `Relink ${saved.name}`, description: `The model could not be opened: ${source.path || source.filename}. Update its location to continue loading this scene.`, path: source.path, error }); if (!result) return false; file = result.file; source = result.source; }
+          try { entry = await engine.load(file, { register: false, source }); }
+          catch (e) { error = `Could not read model geometry: ${e.message}`; file = null; }
+        }
+      }
+      entry.id = saved.id; entry.name = entry.object.name = saved.name; entry.object.position.fromArray(saved.position); entry.object.rotation.set(...saved.rotation); entry.object.scale.fromArray(saved.scale); entry.visible = entry.object.visible = saved.visible; entry.hatch = saved.hatch ? { ...saved.hatch } : null; staged.push(entry);
+    }
+    // Only replace the visible scene after every model has been resolved and parsed.
+    engine.select(null); for (const entry of [...engine.models, ...engine.lights]) engine.remove(entry);
+    engine.params = { ...state.settings }; engine.models = staged; for (const entry of staged) engine.scene.add(entry.object);
+    for (const saved of state.lights) { const entry = engine.addLight(saved.lightType); entry.id = saved.id; entry.name = saved.name; entry.object.position.fromArray(saved.position); entry.target.fromArray(saved.target); entry.intensity = saved.intensity; entry.falloff = saved.falloff; entry.color = saved.color; entry.visible = entry.object.visible = saved.visible; entry.helper.visible = saved.helperVisible; engine.updateLight(entry); }
+    const cameras = state.cameras.map(saved => { const entry = engine.addCamera(saved); entry.id = saved.id; return entry; }); engine.cameras = cameras; engine.activateCamera(cameras.find(c => c.id === state.activeCameraId));
+    engine.serial = Math.max(engine.serial, ...[...engine.models, ...engine.lights, ...engine.cameras].map(e => Number(e.id.split('-').pop()) || 0));
+    engine.grid.visible = $('grid').checked = state.grid; viewMode(state.mode); setHatchScope(null); sceneList(); selectionPanel(); engine.invalidate(); engine.draw(); engine.schedule();
+    // Retain repaired references in the named save without storing model geometry.
+    const record = savedScenes.find(s => s.id === selectedSceneId);
+    if (record) try { const result = saveNamedScene(localStorage, record.name, snapshotScene(engine)); savedScenes = result.scenes; populateScenes(); } catch { toast('Scene loaded, but its repaired paths could not be saved.'); }
+    return true;
+  } finally {
+    if (engine.models !== staged) for (const entry of staged) entry.object.traverse(mesh => { mesh.geometry?.dispose(); mesh.material?.dispose(); mesh.userData.fieldMaterial?.dispose(); });
+    sceneBusy = false; importBusy = false; populateScenes(); $('loading').hidden = true;
+  }
+}
+function setupSceneStorage() {
+  $('saved-scene').onchange = () => { selectedSceneId = $('saved-scene').value; };
+  $('save-scene').onclick = () => { $('scene-name').value = savedScenes.find(s => s.id === selectedSceneId)?.name || ''; $('save-scene-dialog').showModal(); $('scene-name').focus(); };
+  $('cancel-save-scene').onclick = () => $('save-scene-dialog').close();
+  $('save-scene-form').onsubmit = async e => {
+    e.preventDefault(); const name = $('scene-name').value; $('save-scene-dialog').close(); if (sceneBusy || importBusy) return toast('Wait for model loading to finish.'); sceneBusy = true; populateScenes();
+    try {
+      if (localPaths) for (const entry of engine.models) if (entry.source?.kind === 'file') {
+        let error = ''; if (entry.source.path) try { await localModel(entry.source.path, true); continue; } catch (e) { error = e.message; }
+        const result = await requestModelPath({ title: `File path for ${entry.name}`, description: 'The browser does not reveal the full path of a browsed file. Enter it once so saved scenes can reopen this model automatically.', path: entry.source.path, error, infoOnly: true }); if (!result) return; entry.source = result.source;
+      }
+      const result = saveNamedScene(localStorage, name, snapshotScene(engine)); savedScenes = result.scenes; selectedSceneId = result.record.id; toast(`${result.replaced ? 'Updated' : 'Saved'} scene “${result.record.name}”.`);
+    } catch (e) { toast(e.name === 'QuotaExceededError' ? 'Browser storage is full. The scene was not saved.' : e.message); }
+    finally { sceneBusy = false; populateScenes(); selectionPanel(); }
+  };
+  $('load-scene').onclick = async () => { if (sceneBusy || importBusy) return toast('Wait for the current import to finish.'); const record = savedScenes.find(s => s.id === $('saved-scene').value); if (!record) return; try { if (await restoreScene(record.scene)) toast(`Loaded scene “${record.name}”.`); } catch (e) { toast(`Scene could not be loaded: ${e.message}`); } };
+}
 function selectionPanel() {
-  const panel = $('selection-settings'); panel.replaceChildren(); transformInputs.length = 0;
+  const panel = $('selection-settings'); panel.replaceChildren(); transformInputs.length = 0; cameraControls.clear();
   const entry = engine.selected;
   if (!entry) { panel.innerHTML = '<div class="empty-selection"><strong>No object selected</strong>Click a model in the drawing or select an item in the scene.</div>'; return; }
-  const title = document.createElement('div'); title.className = 'selection-name'; title.textContent = entry.name; const meta = document.createElement('div'); meta.className = 'selection-meta'; meta.textContent = entry.type === 'model' ? `${entry.triangles.toLocaleString()} triangles · geometry only` : entry.lightType === 'sun' ? 'Directional light · infinite distance' : 'Point light · local illumination'; panel.append(title, meta);
+  const title = document.createElement('div'); title.className = 'selection-name'; title.textContent = entry.name; const meta = document.createElement('div'); meta.className = 'selection-meta'; meta.textContent = entry.type === 'model' ? `${entry.triangles.toLocaleString()} triangles · geometry only` : entry.type === 'camera' ? 'Active view · navigation updates this camera' : entry.lightType === 'sun' ? 'Directional light · infinite distance' : 'Point light · local illumination'; panel.append(title, meta);
+  if (entry.type === 'camera') { cameraPanel(panel, entry); return; }
   const change = () => { if (entry.type === 'light') engine.updateLight(entry); else { engine.invalidate(); engine.draw(); engine.schedule(); } syncTransform(); };
   xyz(panel, 'Position', entry.object.position.toArray(), (axis, value) => { entry.object.position[axis] = value; change(); }, 'position', entry.type === 'light' ? lightDefaults[entry.lightType].position : [0, 0, 0]);
   if (entry.type === 'model') {
@@ -114,6 +243,7 @@ function selectionPanel() {
     const uniform = document.createElement('label'); uniform.className = 'uniform'; uniform.innerHTML = '<input type="checkbox" id="uniform-scale" checked> Link scale axes'; scaleSection.append(uniform);
     attachReset($('uniform-scale'), 'Link scale axes', 'on', () => { $('uniform-scale').checked = true; });
     const reset = document.createElement('button'); reset.className = 'button subtle full'; reset.textContent = 'Reset transform'; reset.onclick = () => { entry.object.position.set(0, 0, 0); entry.object.rotation.set(0, 0, 0); entry.object.scale.set(1, 1, 1); change(); }; panel.append(reset);
+    modelExtras(panel, entry);
   } else {
     const factory = lightDefaults[entry.lightType];
     if (entry.lightType === 'sun') xyz(panel, 'Aim at', entry.target.toArray(), (axis, value) => { entry.target[axis] = value; change(); }, 'target', factory.target);
@@ -128,18 +258,19 @@ function selectionPanel() {
   }
 }
 function refreshSettings() {
-  for (const [key, control] of controls) control.update(engine.params[key]);
-  $('ink').value = engine.params.ink; $('paper-color').value = engine.params.paper; $('outline-color').value = engine.params.outlineColor;
-  $('cross').checked = engine.params.cross; $('outline').checked = engine.params.outline; $('quality').value = engine.params.quality;
-  controls.get('crossThreshold').input.disabled = !engine.params.cross; controls.get('outlineWidth').input.disabled = !engine.params.outline;
+  const params = hatchParams();
+  for (const [key, control] of controls) control.update(params[key]);
+  $('ink').value = params.ink; $('paper-color').value = params.paper; $('outline-color').value = params.outlineColor;
+  $('cross').checked = params.cross; $('outline').checked = params.outline; $('quality').value = engine.params.quality;
+  controls.get('crossThreshold').input.disabled = !params.cross; controls.get('outlineWidth').input.disabled = !params.outline;
   updatePresetStatus();
 }
-async function loadFiles(files) {
-  if (importBusy) { toast('Please wait for the current import to finish.'); return; }
+async function loadFiles(files, source = null) {
+  if (importBusy || sceneBusy) { toast('Please wait for scene loading or saving to finish.'); return; }
   importBusy = true; $('import').disabled = true;
   for (const file of files) {
     $('loading').hidden = false; $('loading').textContent = `Reading ${file.name}…`;
-    try { await engine.load(file); tab('selection'); toast(`Imported ${file.name}`); } catch (e) { toast(`Could not import ${file.name}: ${e.message}`); }
+    try { await engine.load(file, { source }); tab('selection'); toast(`Imported ${file.name}`); } catch (e) { toast(`Could not import ${file.name}: ${e.message}`); }
   }
   importBusy = false; $('import').disabled = false; $('loading').hidden = true; $('file').value = '';
 }
@@ -152,12 +283,20 @@ async function init() {
   populatePresets();
   for (const [parent, key, name, min, max, step, suffix] of definitions) controls.set(key, range($(parent), key, name, min, max, step, suffix, engine.params[key], value => applyHatchPatch({ [key]: value }), defaults[key]));
   engine.addEventListener('scene', sceneList);
-  engine.addEventListener('selection', () => { sceneList(); selectionPanel(); });
+  engine.addEventListener('selection', () => { sceneList(); selectionPanel(); refreshSettings(); });
   engine.addEventListener('transform', syncTransform);
+  engine.addEventListener('camera-change', () => { syncTransform(); if (engine.selected?.type === 'camera') for (const [key, control] of cameraControls) if (document.activeElement !== control.input) control.update(engine.selected[key]); });
   engine.addEventListener('error', e => { toast(e.detail); $('status').textContent = 'Render failed'; $('loading').hidden = true; });
+  engine.addEventListener('notice', e => toast(e.detail));
   engine.addEventListener('rendering', () => { $('status').textContent = 'Tracing surface lines…'; });
   engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
-  $('import').onclick = $('import-secondary').onclick = () => $('file').click(); $('file').onchange = () => loadFiles([...$('file').files]);
+  try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
+  try { savedScenes = readSavedScenes(localStorage); } catch (e) { toast(e.message); } populateScenes();
+  setupSceneStorage();
+  $('import').onclick = $('import-secondary').onclick = async () => { if (!localPaths) return $('file').click(); const result = await requestModelPath({ title: 'Import model', description: 'Enter a full local file path to enable automatic scene reloading, or browse and enter the path when saving.', browse: 'import' }); if (result?.file) await loadFiles([result.file], result.source); };  $('file').onchange = () => loadFiles([...$('file').files]);
+  $('add-camera').onclick = () => { engine.select(engine.addCamera()); tab('selection'); };
+  $('hatch-scope').onchange = () => { const entry = engine.models.find(e => e.id === $('hatch-scope').value); if (entry && !entry.hatch) engine.setObjectParams(entry, { ...engine.params }); setHatchScope(entry || null); };
+  attachReset($('hatch-scope'), 'Hatching setup', 'Global', () => setHatchScope(null));
   $('add-sun').onclick = () => { engine.select(engine.addLight('sun')); tab('selection'); };
   $('add-point').onclick = () => { engine.select(engine.addLight('point')); tab('selection'); };
   $('delete').onclick = () => engine.remove(); $('frame').onclick = () => engine.frame(); $('reset-camera').onclick = () => engine.resetCamera();
@@ -178,8 +317,8 @@ async function init() {
   for (const [id, key, name] of [['cross', 'cross', 'Cross-hatching'], ['outline', 'outline', 'Outer outline']]) {
     $(id).onchange = () => applyHatchPatch({ [key]: $(id).checked }); attachReset($(id), name, defaults[key] ? 'on' : 'off', () => applyHatchPatch({ [key]: defaults[key] }));
   }
-  $('quality').onchange = () => applyHatchPatch({ quality: +$('quality').value });
-  attachReset($('quality'), 'Render detail', 'Balanced · 1100 px', () => applyHatchPatch({ quality: defaults.quality }));
+  $('quality').onchange = () => { engine.setParams({ quality: +$('quality').value }); refreshSettings(); };
+  attachReset($('quality'), 'Render detail', 'Balanced · 1100 px', () => { engine.setParams({ quality: defaults.quality }); refreshSettings(); });
   $('reset-settings').onclick = () => loadPreset('engraving');
   $('preset').onchange = () => loadPreset($('preset').value);
   $('load-preset').onclick = () => loadPreset($('preset').value);
@@ -189,11 +328,11 @@ async function init() {
   $('save-preset-form').onsubmit = e => {
     e.preventDefault();
     try {
-      const result = saveNamedPreset(localStorage, $('preset-name').value, engine.params); savedPresets = result.presets; selectedPresetId = result.preset.id;
+      const result = saveNamedPreset(localStorage, $('preset-name').value, hatchParams()); savedPresets = result.presets; selectedPresetId = result.preset.id;
       populatePresets(); updatePresetStatus(); $('save-preset-dialog').close(); toast(`${result.replaced ? 'Updated' : 'Saved'} preset “${result.preset.name}”.`);
     } catch (error) { toast(error.name === 'QuotaExceededError' ? 'Browser storage is full. The preset was not saved.' : error.message || 'This browser could not save the preset.'); }
   };
-  window.addEventListener('storage', e => { if (e.key === PRESET_STORAGE_KEY || e.key === null) { try { savedPresets = readSavedPresets(localStorage); populatePresets(); updatePresetStatus(); } catch (error) { toast(error.message); } } });
+  window.addEventListener('storage', e => { if (e.key === SCENE_STORAGE_KEY || e.key === null) { try { savedScenes = readSavedScenes(localStorage); populateScenes(); } catch (error) { toast(error.message); } } if (e.key === PRESET_STORAGE_KEY || e.key === null) { try { savedPresets = readSavedPresets(localStorage); populatePresets(); updatePresetStatus(); } catch (error) { toast(error.message); } } });
   let exportURL;
   $('export').onclick = () => { try { const canvas = engine.exportPNG(); canvas.toBlob(blob => { if (!blob) return toast('The image could not be exported.'); if (exportURL) URL.revokeObjectURL(exportURL); exportURL = URL.createObjectURL(blob); $('export-image').src = exportURL; $('download-image').href = exportURL; $('export-size').textContent = `${canvas.width} × ${canvas.height} px`; $('export-dialog').showModal(); }, 'image/png'); } catch (e) { toast(e.message); } };
   $('close-export').onclick = () => $('export-dialog').close();
@@ -219,7 +358,7 @@ async function init() {
   if (document.modelContext?.registerTool) {
     const lifecycle = new AbortController();
     const tools = [
-      { name: 'read_etch_scene', title: 'Read scene', description: 'Read the current models, lights and global hatching settings.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true }, execute: () => ({ models: engine.models.map(x => ({ id: x.id, name: x.name, triangles: x.triangles })), lights: engine.lights.map(x => ({ id: x.id, type: x.lightType, intensity: x.intensity })), settings: { ...engine.params } }) },
+      { name: 'read_etch_scene', title: 'Read scene', description: 'Read models, their hatching styles, lights, cameras and global settings.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true }, execute: () => ({ models: engine.models.map(x => ({ id: x.id, name: x.name, triangles: x.triangles, hatch: x.hatch || null, source: x.source, position: x.object.position.toArray() })), lights: engine.lights.map(x => ({ id: x.id, type: x.lightType, intensity: x.intensity })), cameras: engine.cameras.map(e => engine.cameraSnapshot(e)), activeCameraId: engine.activeCamera.id, settings: { ...engine.params } }) },
       { name: 'configure_hatch_spacing', title: 'Set hatch spacing', description: 'Set global shadow and light line spacing in screen pixels, using the same controls as the inspector.', inputSchema: { type: 'object', properties: { shadow: { type: 'number', minimum: 2, maximum: 16 }, light: { type: 'number', minimum: 6, maximum: 60 } }, required: ['shadow', 'light'], additionalProperties: false }, execute: input => { if (!input || !Number.isFinite(input.shadow) || !Number.isFinite(input.light) || input.shadow < 2 || input.shadow > 16 || input.light < 6 || input.light > 60 || input.shadow > input.light) throw new Error('Enter valid spacing with shadow no greater than light.'); engine.setParams({ spacing: input.shadow, lightSpacing: input.light }); refreshSettings(); return { shadow: engine.params.spacing, light: engine.params.lightSpacing }; } }
     ];
     for (const tool of tools) try { Promise.resolve(document.modelContext.registerTool(tool, { signal: lifecycle.signal })).catch(() => {}); } catch {}
