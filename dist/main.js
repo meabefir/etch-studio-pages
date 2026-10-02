@@ -319,7 +319,9 @@ async function init() {
   engine.addEventListener('navigation',e=>{$('fly-hint').hidden=!e.detail;});
   engine.addEventListener('rendering', () => { $('status').textContent = 'Tracing surface lines…'; });
   engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes${e.detail.depthEdges?` + ${e.detail.depthEdges} depth edges`:''} · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
-  try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
+  if(location.protocol==='http:'&&['127.0.0.1','localhost'].includes(location.hostname)&&['/','/index.html'].includes(location.pathname)){
+    try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
+  }
   try { savedScenes = readSavedScenes(localStorage); } catch (e) { toast(e.message); } populateScenes();
   setupSceneStorage();
   $('add-sigil').onclick=addSigil;

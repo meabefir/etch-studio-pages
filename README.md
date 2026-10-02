@@ -4,6 +4,8 @@ A browser-based 3D line-hatching editor. Models are processed on your device. Th
 
 ## Open the app
 
+Use the online editor at **https://meabefir.github.io/etch-studio-pages/**. Models are processed in your browser. When opening a saved scene, reselect imported model files through the file picker. Online scenes and presets are stored separately from the local copy.
+
 Run the included local copy:
 
 1. Extract the ZIP into a folder.
@@ -11,6 +13,12 @@ Run the included local copy:
 3. Open **http://127.0.0.1:4173**. Keep the server window open while using the app.
 
 On other platforms, run `node server.mjs` in this folder and open the same address. Serve the `dist` folder through HTTP; opening `index.html` directly cannot start the rendering workers.
+
+## GitHub Pages development
+
+This repository preserves the original project's commit history and folder layout. Continue editing the app in `dist/`; run `node server.mjs` or **Start Etch.cmd** for the local editor. Commit and push changes to `main` to update the online editor automatically.
+
+GitHub Pages publishes `main` from the repository root. The root `index.html` opens `dist/`, so the live app uses the same files as the local server. `.nojekyll` disables Jekyll processing. The local server is used only on your computer; GitHub Pages serves static files. Browser saves and presets keep the same site address and remain available.
 
 ## Workflow
 
