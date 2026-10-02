@@ -329,7 +329,7 @@ async function init() {
   $('add-sun').onclick = () => { engine.select(engine.addLight('sun')); tab('selection'); };
   $('add-point').onclick = () => { engine.select(engine.addLight('point')); tab('selection'); };
   $('delete').onclick = () => engine.remove(); $('frame').onclick = () => engine.frame(); $('reset-camera').onclick = () => engine.resetCamera();
-  $('grid').onchange = () => { engine.grid.visible = $('grid').checked; engine.draw(); };
+  $('grid').onchange = () => { engine.grid.visible = $('grid').checked;if(engine.activeCamera.projection==='fisheye'){engine.invalidate();engine.schedule();}engine.draw(); };
   $('space').onchange = () => { engine.transform.setSpace($('space').value); engine.draw(); };
   attachReset($('grid'), 'Grid', 'off', () => { $('grid').checked = engine.grid.visible = false; engine.draw(); });
   attachReset($('space'), 'Transform space', 'World', () => { $('space').value = 'world'; engine.transform.setSpace('world'); engine.draw(); });

@@ -10,6 +10,8 @@ import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from
 import { starterSigil, validateSigil } from './sigil-data.js';
 import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
+import { InfiniteGrid } from './infinite-grid.js';
+import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
 export { defaults } from './settings.js';
 
 const vertexShader = `
@@ -88,7 +90,8 @@ export class EtchEngine extends EventTarget {
     });
     this.ambientLight = new THREE.AmbientLight(0xffffff, this.params.ambient); this.scene.add(this.ambientLight);
     this.box = new THREE.Box3Helper(new THREE.Box3(), 0xc77c43); this.overlay.add(this.box); this.box.visible = false;
-    this.grid = new THREE.GridHelper(12, 24, 0xb8bdc7, 0xdce0e7); this.grid.position.y = -2.3; this.grid.visible = false; this.overlay.add(this.grid);
+    this.grid=new InfiniteGrid();this.gridScene=new THREE.Scene();this.gridScene.add(this.grid);this.depthOnlyMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true,side:THREE.DoubleSide});
+    this.viewCompass=new ViewCompass(container,{align:(axis,sign)=>this.alignView(axis,sign),roll:angle=>this.rollView(angle)});
     this.raycaster = new THREE.Raycaster(); this.pointer = new THREE.Vector2();
     let down;
     this.renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY, performance.now()]; });
@@ -164,6 +167,8 @@ export class EtchEngine extends EventTarget {
   }
   updateLensCamera() {
     if (this.activeCamera.projection !== 'fisheye') return;
+    // The infinite ground can fill the lens outside the model's projected bounds.
+    if(this.grid?.visible){this.camera.fov=this.activeCamera.fov;this.camera.updateProjectionMatrix();return;}
     this.camera.updateMatrixWorld(true); let tangent = Math.tan(THREE.MathUtils.degToRad(5));
     for (const entry of this.models) if (entry.visible) entry.object.traverse(mesh => {
       if (!mesh.isMesh) return; mesh.updateWorldMatrix(true, false); if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
@@ -190,8 +195,12 @@ export class EtchEngine extends EventTarget {
       renderer.setRenderTarget(this.lensTarget);
     }
     renderer.setClearColor(this.params.paper, showSolid ? 1 : 0); renderer.autoClear = true;
-    if (showSolid) { renderer.render(this.scene, this.camera); renderer.autoClear = false; renderer.clearDepth(); }
-    if (overlay) renderer.render(this.overlay, this.camera); else if (!showSolid) renderer.clear();
+    if(showSolid)renderer.render(this.scene,this.camera);
+    else if(overlay&&this.grid.visible){const original=this.scene.overrideMaterial;this.scene.overrideMaterial=this.depthOnlyMaterial;try{renderer.render(this.scene,this.camera);}finally{this.scene.overrideMaterial=original;}}
+    else renderer.clear();
+    renderer.autoClear=false;
+    if(overlay&&this.grid.visible){this.grid.update(this.camera,renderer);renderer.render(this.gridScene,this.camera);}
+    if(overlay){renderer.clearDepth();renderer.render(this.overlay,this.camera);}
     renderer.autoClear = true;
     if (lens) {
       const u = this.lensMaterial.uniforms, c = new THREE.Color(this.params.paper);
@@ -212,6 +221,7 @@ export class EtchEngine extends EventTarget {
     if (!this.renderer) return;
     this.updateLensCamera();
     this.camera.updateMatrixWorld(true);
+    this.viewCompass?.update(this.camera);
     for(const light of this.lights){light.visuals.update(this.camera,Math.max(1,this.container.clientHeight),this.showLightIcons,this.selected===light,this.lightEditMode==='aim');light.helper.visible=this.showLightIcons&&light.visible&&light.helperEnabled;}
     this.ambientLight.intensity = this.params.ambient;
     if (['model','sigil'].includes(this.selected?.type)) { this.box.box.setFromObject(this.selected.object); this.box.visible = true; } else this.box.visible = false;
@@ -367,7 +377,13 @@ export class EtchEngine extends EventTarget {
     this.orbit.target.copy(center); this.camera.position.copy(center).addScaledVector(direction, distance);
     this.camera.far = this.activeCamera.far = Math.max(120, distance + radius * 8); this.camera.near = this.activeCamera.near = Math.max(0.01, distance / 2000); this.camera.updateProjectionMatrix(); this.orbit.update(); this.invalidate(); this.draw(); this.schedule();
   }
-  resetCamera() { this.camera.position.set(5, 3.1, 7.8); this.orbit.target.set(0, 0, 0); this.orbit.update(); this.frame(null); }
+  resetCamera() { this.navigation.stop();this.camera.position.set(5,3.1,7.8);this.camera.up.fromArray(cameraDefaults.up);this.activeCamera.target.set(0,0,0);this.bindOrbit();this.frame(null); }
+  alignView(axis,sign=1){
+    this.navigation.stop();const entry=['model','sigil'].includes(this.selected?.type)?this.selected:null,box=new THREE.Box3();
+    if(entry)box.setFromObject(entry.object);else for(const model of this.models)if(model.visible)box.expandByObject(model.object);
+    const target=box.isEmpty()?this.orbit.target.clone():box.getCenter(new THREE.Vector3());axisCameraPose(this.camera,target,axis,sign);this.activeCamera.target.copy(target);this.bindOrbit();if(!box.isEmpty())this.frame(entry);else{this.invalidate();this.draw();this.schedule();}this.emit('camera-change');
+  }
+  rollView(degrees){this.navigation.stop();this.activeCamera.target.copy(this.orbit.target);rollCameraPose(this.camera,this.orbit.target,THREE.MathUtils.degToRad(degrees));this.bindOrbit();this.invalidate();this.draw();this.schedule();this.emit('camera-change');}
   async renderHatch() {
     if (this.busy || this.interacting || this.mode !== 'hatch') return;
     if (!this.dirty) return;
