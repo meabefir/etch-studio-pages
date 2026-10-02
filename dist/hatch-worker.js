@@ -1,4 +1,5 @@
 import {rampTable,rgb} from './toon.js';
+import {hardContourPaths} from './contour-paths.js';
 // Evenly spaced, bidirectional screen-space streamlines with midpoint integration.
 // The GPU supplies visible depth, normals, lighting and projected curvature lines.
 self.onmessage = ({ data }) => {
@@ -19,6 +20,7 @@ self.onmessage = ({ data }) => {
       if(!packed){shade[i] = field[j + 2] / 255;dx[i] = field[j] / 127.5 - 1; dy[i] = field[j + 1] / 127.5 - 1;z[i] = (depth[j] * 256 + depth[j + 1]) / 65535 * data.far;}
       zmin = Math.min(zmin, depthAt(i)); zmax = Math.max(zmax, depthAt(i));
     }
+    const hard=hardContourPaths(mask,i=>packed?data.hard&&(data.hard[i>>3]&(1<<(i&7))):depth[((h-1-Math.floor(i/w))*w+i%w)*4+2],w,h,scale,style);
     const objectIds=[...new Set(mask)].filter(Boolean),hasToon=objectIds.some(object=>['toon','combined'].includes(style(object).shadeMode));
     const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
     ctx.fillStyle = p.paper; ctx.fillRect(0, 0, w, h);
@@ -81,6 +83,7 @@ self.onmessage = ({ data }) => {
       const queue = [], seeds = [], step = Math.max(0.35, Math.min(1.25 * scale, minSpace * .6));
       function available(x, y, distance) {
         const object = mask[pixel(x, y)];
+        if(hard.blocked(x,y,object))return false;
         const bx = Math.floor(x / cell), by = Math.floor(y / cell), range = Math.ceil(distance / cell), d2 = distance * distance;
         for (let yy = Math.max(0, by - range); yy <= Math.min(gh - 1, by + range); yy++) for (let xx = Math.max(0, bx - range); xx <= Math.min(gw - 1, bx + range); xx++) {
           const bin = getBin(yy * gw + xx); if (!bin) continue;
@@ -96,11 +99,13 @@ self.onmessage = ({ data }) => {
         const limit = Math.min(1800, Math.ceil(style(object).length * scale / (step * 2)));
         for (let j = 0; j < limit; j++) {
           const i = pixel(x, y); if (i < 0 || mask[i] !== object || !eligible(i)) break;
+          if(hard.blocked(x,y,object))break;
           if (j > 2 && !available(x, y, spacingAt(i) * (cross ? 0.7 : 0.72))) break;
           const d1 = direction(x, y, vx, vy, cross); if (!d1) break;
           const d2 = direction(x + d1[0] * step * 0.5, y + d1[1] * step * 0.5, d1[0], d1[1], cross); if (!d2) break;
           const nx = x + d2[0] * step, ny = y + d2[1] * step, ni = pixel(nx, ny);
           if (ni < 0 || mask[ni] !== object || Math.abs(depthAt(ni) - depthAt(i)) > Math.max(0.12, depthAt(i) * 0.025)) break;
+          if(hard.crosses(x,y,nx,ny,object))break;
           // Avoid looping indefinitely around a field singularity or closed contour.
           if (j > 24 && Math.hypot(nx - sx, ny - sy) < step * 1.8) break;
           points.push(x, y); x = nx; y = ny; vx = d2[0]; vy = d2[1];
@@ -149,6 +154,8 @@ self.onmessage = ({ data }) => {
       for (let y = 0; y < h; y++) { let x = 0; while (x < w) { if (mask[y*w+x] !== object) { x++; continue; } const start = x; while (x < w && mask[y*w+x] === object) x++; ctx.fillRect(start, y, x-start, 1); } }
     }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for(const object of objectIds){const local=style(object);if(!local.hardContour)continue;ctx.strokeStyle=local.hardColor;ctx.lineWidth=local.hardWidth*scale;ctx.beginPath();
+      for(const path of hard.paths){if(path.object!==object)continue;ctx.moveTo(path.points[0],path.points[1]);for(let i=2;i<path.points.length;i+=2)ctx.lineTo(path.points[i],path.points[i+1]);}ctx.stroke();}
     const depthPaths=depthContours(mask,z,w,h,scale,style,zScale);
     for (const object of objectIds) {
       const local = style(object); ctx.strokeStyle = local.ink; ctx.lineWidth = local.width * scale; ctx.beginPath();
@@ -179,7 +186,7 @@ self.onmessage = ({ data }) => {
       ctx.stroke();
     }
     const bitmap = canvas.transferToImageBitmap();
-    self.postMessage({ id, bitmap, lines: lineCount,depthEdges:depthPaths.length, ms: Math.round(performance.now() - start), coveredPixels: mask.reduce((s, v) => s + (v > 0), 0) }, [bitmap]);
+    self.postMessage({ id, bitmap, lines: lineCount,hardEdges:hard.paths.length,depthEdges:depthPaths.length, ms: Math.round(performance.now() - start), coveredPixels: mask.reduce((s, v) => s + (v > 0), 0) }, [bitmap]);
   } catch (e) { self.postMessage({ id: data.id, error: e.message }); }
 };
 

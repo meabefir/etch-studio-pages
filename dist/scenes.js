@@ -1,4 +1,5 @@
-import { validateSettings } from './settings.js';
+import { validateSettings,hatchingSettings } from './settings.js';
+import {toonKeys,validateToonSettings} from './toon.js';
 import { projections } from './lenses.js';
 import { validateSigil } from './sigil-data.js';
 import { validateOutput } from './output-settings.js';
@@ -18,9 +19,11 @@ export function validateScene(scene) {
     identity(entry); const source = entry.source;
     if (!vector(entry.position) || !vector(entry.rotation) || !vector(entry.scale, true) || typeof entry.visible !== 'boolean') reject('A model has invalid transforms.');
     if (!source || !['file', 'demo', 'sigil'].includes(source.kind) || (source.kind === 'demo' && !['knot', 'sphere', 'vessel'].includes(source.shape)) || (source.kind === 'file' && (typeof source.path !== 'string' || source.path.length > 4096 || typeof source.filename !== 'string' || !/\.(obj|glb)$/i.test(source.filename)))) reject('A model has an invalid file reference.');
-    const hatch = entry.hatch ? validateSettings(entry.hatch) : null; if (entry.hatch && !hatch) reject('A model has invalid hatching settings.');
+    const hatch = entry.hatch ? hatchingSettings(entry.hatch) : null; if (entry.hatch && !hatch) reject('A model has invalid hatching settings.');
+    const legacyToon=entry.toon===undefined&&entry.hatch&&toonKeys.some(key=>key in entry.hatch)?entry.hatch:null;
+    const toon=entry.toon!=null?validateToonSettings(entry.toon):legacyToon?validateToonSettings(legacyToon):null;
     if(source.kind==='file'&&source.part!=null&&(!Number.isSafeInteger(source.part)||source.part<0))reject('A model has an invalid OBJ object reference.');
-    return { id: entry.id, name: entry.name, position: [...entry.position], rotation: [...entry.rotation], scale: [...entry.scale], visible: entry.visible, hatch, source: source.kind === 'sigil' ? {kind:'sigil',design:validateSigil(source.design)} : source.kind === 'demo' ? { kind: 'demo', shape: source.shape } : { kind: 'file', path: source.path, filename: source.filename,...(source.part==null?{}:{part:source.part}) } };
+    return { id: entry.id, name: entry.name, position: [...entry.position], rotation: [...entry.rotation], scale: [...entry.scale], visible: entry.visible, hatch, toon, source: source.kind === 'sigil' ? {kind:'sigil',design:validateSigil(source.design)} : source.kind === 'demo' ? { kind: 'demo', shape: source.shape } : { kind: 'file', path: source.path, filename: source.filename,...(source.part==null?{}:{part:source.part}) } };
   });
   const lights = scene.lights.map(entry => {
     identity(entry); if (!['sun', 'point'].includes(entry.lightType) || !vector(entry.position) || !vector(entry.target) || !number(entry.intensity, 0, 5) || !number(entry.falloff, 0, .5) || !color(entry.color) || typeof entry.visible !== 'boolean') reject('A light has invalid settings.');
@@ -35,7 +38,7 @@ export function validateScene(scene) {
 }
 export function snapshotScene(engine) {
   return validateScene({ version: 1, settings: { ...engine.params }, output:engine.outputSettings||null, activeCameraId: engine.activeCamera.id, grid: engine.grid.visible,lightIcons:engine.showLightIcons, mode: engine.mode,
-    models: engine.models.map(e => ({ id: e.id, name: e.name, source: e.source, position: e.object.position.toArray(), rotation: [e.object.rotation.x, e.object.rotation.y, e.object.rotation.z], scale: e.object.scale.toArray(), visible: e.visible, hatch: e.hatch || null })),
+    models: engine.models.map(e => ({ id: e.id, name: e.name, source: e.source, position: e.object.position.toArray(), rotation: [e.object.rotation.x, e.object.rotation.y, e.object.rotation.z], scale: e.object.scale.toArray(), visible: e.visible, hatch: e.hatch || null, toon: e.toon || null })),
     lights: engine.lights.map(e => ({ id: e.id, name: e.name, lightType: e.lightType, position: e.object.position.toArray(), target: e.target.toArray(), intensity: e.intensity, falloff: e.falloff, color: e.color, visible: e.visible, helperVisible: e.helperEnabled ?? e.helper.visible })),
     cameras: engine.cameras.map(e => engine.cameraSnapshot(e)) });
 }

@@ -56,7 +56,7 @@ export class OutputEditor{
       const result=await this.engine.exportPNG(this.capture,this.settings,{preview,signal,onProgress:text=>{if(!preview&&id===this.version&&!signal.aborted&&this.dialog.open)this.status(text);}});if(signal.aborted||id!==this.version||!this.dialog.open)return;
       if(!preview)this.status(`Encoding ${this.settings.width} × ${this.settings.height} PNG…`);const blob=await new Promise(resolve=>result.canvas.toBlob(resolve,'image/png'));if(signal.aborted||id!==this.version||!this.dialog.open)return;if(!blob)throw new Error('The image could not be encoded as PNG.');
       if(this.previewURL)URL.revokeObjectURL(this.previewURL);this.previewURL=URL.createObjectURL(blob);this.q('#export-image').src=this.previewURL;
-      this.status(`${preview?'Preview':'PNG ready'} · ${result.canvas.width} × ${result.canvas.height} px${preview?` · Output ${this.settings.width} × ${this.settings.height} px`:''}${result.lines?` · ${result.lines.toLocaleString()} strokes`:''}`);
+      this.status(`${preview?'Preview':'PNG ready'} · ${result.canvas.width} × ${result.canvas.height} px${preview?` · Output ${this.settings.width} × ${this.settings.height} px`:''}${result.lines?` · ${result.lines.toLocaleString()} strokes`:''}${result.hardEdges?` · ${result.hardEdges} hard contours`:''}`);
       if(!preview){this.disableDownload();this.downloadURL=URL.createObjectURL(blob);return this.downloadURL;}
     }catch(error){if(error.name!=='AbortError'&&id===this.version)this.status(error.message,true);}
     finally{if(id===this.version){this.fullRendering=false;this.actions();}}

@@ -18,7 +18,7 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
     if(capture.mode==='hatch'){
       if(!tiled)buffers=engine.geometryBuffers(camera,w,h,target);
       else{
-        buffers=packedBuffers(w,h);let completed=0;
+        buffers=packedBuffers(w,h,engine.models.some(entry=>entry.visible&&engine.styleFor(entry).hardContour));let completed=0;
         for(const tile of tiles){
           if(signal?.aborted)throw aborted();target.setSize(tile.width,tile.height);
           packTile(buffers,engine.geometryBuffers(tileCamera(camera,w,h,tile),tile.width,tile.height,target),w,h,tile);
@@ -51,8 +51,8 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
   return new Promise((resolve,reject)=>{
     const cleanup=()=>{worker.terminate();signal?.removeEventListener('abort',cancel);},cancel=()=>{cleanup();reject(aborted());};signal?.addEventListener('abort',cancel,{once:true});
     worker.onerror=e=>{cleanup();reject(new Error(e.message||'Image rendering failed.'));};
-    worker.onmessage=({data})=>{cleanup();if(data.error)return reject(new Error(data.error));context.drawImage(data.bitmap,0,0);data.bitmap.close();resolve({canvas,lines:data.lines,ms:data.ms});};
-    worker.postMessage({id:0,width:w,height:h,scale,...buffers,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer]);
+    worker.onmessage=({data})=>{cleanup();if(data.error)return reject(new Error(data.error));context.drawImage(data.bitmap,0,0);data.bitmap.close();resolve({canvas,lines:data.lines,hardEdges:data.hardEdges,ms:data.ms});};
+    worker.postMessage({id:0,width:w,height:h,scale,...buffers,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer,...(buffers.hard?[buffers.hard.buffer]:[])]);
   });
 }
 

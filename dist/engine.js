@@ -5,7 +5,9 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { defaults, lightDefaults } from './settings.js';
+import { defaults, lightDefaults,hatchingSettings } from './settings.js';
+import {validateToonSettings} from './toon.js';
+import {HardContourRenderer} from './hard-contours.js';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js';
 import { starterSigil, validateSigil } from './sigil-data.js';
 import { configureOrbit, FlyNavigation } from './navigation.js';
@@ -122,7 +124,7 @@ export class EtchEngine extends EventTarget {
       if (data.id === this.revision && !this.interacting) {
         this.paperCanvas.width = data.bitmap.width; this.paperCanvas.height = data.bitmap.height;
         this.paperCanvas.getContext('2d').drawImage(data.bitmap, 0, 0); this.ready = true;
-        this.emit('rendered', { lines: data.lines,depthEdges:data.depthEdges||0, ms: data.ms, width: data.bitmap.width, height: data.bitmap.height, coveredPixels: data.coveredPixels });
+        this.emit('rendered', { lines: data.lines,hardEdges:data.hardEdges||0,depthEdges:data.depthEdges||0, ms: data.ms, width: data.bitmap.width, height: data.bitmap.height, coveredPixels: data.coveredPixels });
       }
       data.bitmap.close(); this.draw(); if (this.dirty) this.schedule();
     };
@@ -246,8 +248,9 @@ export class EtchEngine extends EventTarget {
     this.transform.attach(entry.type==='light'&&entry.lightType==='sun'&&this.lightEditMode==='aim'?entry.aimObject:entry.object);
   }
   select(entry) { this.navigation?.stop();if (entry?.type === 'camera') this.activateCamera(entry); this.selected = entry;if(entry?.type==='light')this.lightEditMode=entry.lightType==='sun'?'aim':'position';this.attachSelection();this.draw();this.emit('selection', entry); }
-  styleFor(entry) { return entry.hatch ? { ...this.params, ...entry.hatch, quality: this.params.quality } : this.params; }
-  setObjectParams(entry, patch) { entry.hatch = { ...this.styleFor(entry), ...patch }; this.invalidate(); this.draw(); this.schedule(); }
+  styleFor(entry) { return { ...this.params, ...entry.hatch,...entry.toon, quality:this.params.quality }; }
+  setObjectParams(entry, patch) { entry.hatch = hatchingSettings({ ...this.styleFor(entry), ...patch }); this.invalidate(); this.draw(); this.schedule(); }
+  setObjectToon(entry,patch){entry.toon=patch===null?null:validateToonSettings({...this.styleFor(entry),...patch});this.invalidate();this.draw();this.schedule();}
   async prepare(geometry) {
     if (!geometry.attributes.normal) geometry.computeVertexNormals();
     const pos = geometry.attributes.position, nor = geometry.attributes.normal;
@@ -426,7 +429,12 @@ export class EtchEngine extends EventTarget {
           u.uLights.value[i].set(v.x,v.y,v.z,light.lightType==='sun'?0:1);const c=light.object.color;u.uPowers.value[i].set(light.intensity*(c.r*.2126+c.g*.7152+c.b*.0722),light.falloff);}
       });
       renderer.setRenderTarget(target);renderer.setClearColor(0,0);renderer.autoClear=true;renderer.render(this.scene,camera);
-      renderer.readRenderTargetPixels(target,0,0,w,h,normal,0,0);renderer.readRenderTargetPixels(target,0,0,w,h,field,0,1);renderer.readRenderTargetPixels(target,0,0,w,h,depth,0,2);return {normal,field,depth};
+      renderer.readRenderTargetPixels(target,0,0,w,h,normal,0,0);renderer.readRenderTargetPixels(target,0,0,w,h,field,0,1);renderer.readRenderTargetPixels(target,0,0,w,h,depth,0,2);
+      if(this.models.some(entry=>entry.visible&&this.styleFor(entry).hardContour)){
+        this.hardContours??=new HardContourRenderer();const contours=this.hardContours.render(this,camera,w,h);
+        for(let j=0;j<depth.length;j+=4)if(contours[j]&&contours[j]===normal[j+3])depth[j+2]=255;
+      }
+      return {normal,field,depth};
     }finally{renderer.setRenderTarget(oldTarget);renderer.setClearColor(clear,alpha);renderer.autoClear=auto;for(const [mesh,material]of originals)mesh.material=material;}
   }
   captureOutputView(){this.camera.updateMatrixWorld(true);this.scene.updateMatrixWorld(true);return {camera:copyOutputCamera(this.camera),lens:{...this.lensSettings()},referenceHeight:Math.max(1,this.container.clientHeight),mode:this.mode,name:this.activeCamera.name};}

@@ -1,5 +1,11 @@
 export const toonDefaults={shadeMode:'hatch',toonBlend:'linear',toonRamp:[{id:'shadow',position:0,color:'#263044'},{id:'midtone',position:.5,color:'#8f9eaf'},{id:'light',position:1,color:'#f4e6cd'}]};
 export const toonKeys=Object.keys(toonDefaults);
+export function validateToonSettings(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid toon settings.');
+  const shadeMode=value.shadeMode??toonDefaults.shadeMode,toonBlend=value.toonBlend??toonDefaults.toonBlend;
+  if(!['hatch','toon','combined'].includes(shadeMode)||!['linear','constant'].includes(toonBlend))throw new Error('Invalid toon settings.');
+  return {shadeMode,toonBlend,toonRamp:validateRamp(value.toonRamp??toonDefaults.toonRamp)};
+}
 export const rgb=color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));
 export function validateRamp(value){
   if(!Array.isArray(value)||value.length<2||value.length>128)throw new Error('A color ramp needs 2–128 stops.');

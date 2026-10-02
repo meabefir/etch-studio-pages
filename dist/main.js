@@ -2,7 +2,7 @@ import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js';
 import { ToonEditor } from './toon-editor.js';
 import { EtchEngine } from './engine.js';
-import { defaults, depthKeys, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
+import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
 import { starterSigil } from './sigil-data.js';
 import { cameraDefaults, projections } from './lenses.js';
@@ -13,7 +13,7 @@ let engine, importBusy = false, toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
 function tab(which) { for(const name of ['hatch','selection','depth','toon']){const active=which===name;$(name+'-settings').hidden=!active;$(name+'-tab').classList.toggle('active',active);$(name+'-tab').setAttribute('aria-selected',String(active));} }
 const controls = new Map();
-let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
+let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, toonTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
 let sigilEditor,toonEditor;
 async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
@@ -23,13 +23,17 @@ async function addSigil() {
 }
 
 const hatchParams = () => hatchTarget ? engine.styleFor(hatchTarget) : engine.params;
-function setHatch(patch) { if (hatchTarget) engine.setObjectParams(hatchTarget, patch); else engine.setParams(patch); }
+function setHatch(patch) { const clean=hatchingSettings({...hatchParams(),...patch});if (hatchTarget) engine.setObjectParams(hatchTarget, clean); else engine.setParams(clean); }
+const toonParams=()=>toonTarget?engine.styleFor(toonTarget):engine.params;
+function setToonScope(entry){toonTarget=entry;populateHatchScope();refreshSettings();}
+function changeToon(patch){if(toonTarget)engine.setObjectToon(toonTarget,patch);else engine.setParams(patch);populateHatchScope();refreshSettings();viewMode('hatch');}
 function populateHatchScope() {
   if (hatchTarget && !engine.models.includes(hatchTarget)) hatchTarget = null;
   $('hatch-scope').replaceChildren(new Option('Global · inherited objects', 'global'), ...engine.models.map(e => new Option(`${e.name}${e.hatch ? ' · own style' : ' · global'}`, e.id)));
   $('hatch-scope').value = hatchTarget?.id || 'global';
   $('depth-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.hatch?' · own style':' · global'}`,e.id)));$('depth-scope').value=hatchTarget?.id||'global';
-  $('toon-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.hatch?' · own style':' · global'}`,e.id)));$('toon-scope').value=hatchTarget?.id||'global';
+  if(toonTarget&&!engine.models.includes(toonTarget))toonTarget=null;
+  $('toon-scope').replaceChildren(new Option('Global · inherited objects','global'),...engine.models.map(e=>new Option(`${e.name}${e.toon?' · own toon':' · global toon'}`,e.id)));$('toon-scope').value=toonTarget?.id||'global';
   $('scope-hint').textContent = hatchTarget ? `Editing ${hatchTarget.name}. Render detail remains global; paper tint applies to this object's surface.` : 'Objects use the global setup unless given their own style.';
 }
 function setHatchScope(entry) { hatchTarget = entry; populateHatchScope(); refreshSettings(); }
@@ -158,7 +162,7 @@ function cameraPanel(panel, entry) {
 function modelExtras(panel, entry) {
   const section = document.createElement('div'); section.className = 'setting-section'; panel.append(section);
   const label = document.createElement('label'); label.className = 'checkbox-row'; const check = document.createElement('input'); check.type = 'checkbox'; check.checked = Boolean(entry.hatch); check.setAttribute('aria-label', 'Use separate hatching setup');
-  const setOwn = enabled => { entry.hatch = enabled ? { ...engine.params } : null; engine.invalidate(); engine.draw(); engine.schedule(); if (!enabled && hatchTarget === entry) setHatchScope(null); sceneList(); selectionPanel(); };
+  const setOwn = enabled => { entry.hatch = enabled ? hatchingSettings(engine.params) : null; engine.invalidate(); engine.draw(); engine.schedule(); if (!enabled && hatchTarget === entry) setHatchScope(null); sceneList(); selectionPanel(); };
   check.onchange = () => setOwn(check.checked); label.append(check, document.createTextNode('Use separate hatching setup')); section.append(label); attachReset(check, 'Separate hatching setup', 'off', () => setOwn(false));
   const edit = document.createElement('button'); edit.className = 'button subtle full'; edit.textContent = 'Edit this object’s hatching'; edit.onclick = () => { if (!entry.hatch) engine.setObjectParams(entry, { ...engine.params }); setHatchScope(entry); tab('hatch'); }; section.append(edit);
   const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = entry.hatch ? 'This object keeps its own style when global settings change.' : 'This object follows the global hatching setup.'; section.append(hint);
@@ -209,7 +213,7 @@ async function restoreScene(state) {
           catch (e) { error = `Could not read model geometry: ${e.message}`; file = null; }
         }
       }
-      entry.id = saved.id; entry.name = entry.object.name = saved.name; entry.object.position.fromArray(saved.position); entry.object.rotation.set(...saved.rotation); entry.object.scale.fromArray(saved.scale); entry.visible = entry.object.visible = saved.visible; entry.hatch = saved.hatch ? { ...saved.hatch } : null; staged.push(entry);
+      entry.id = saved.id; entry.name = entry.object.name = saved.name; entry.object.position.fromArray(saved.position); entry.object.rotation.set(...saved.rotation); entry.object.scale.fromArray(saved.scale); entry.visible = entry.object.visible = saved.visible; entry.hatch = saved.hatch ? { ...saved.hatch } : null;entry.toon=saved.toon||null; staged.push(entry);
     }
     // Only replace the visible scene after every model has been resolved and parsed.
     engine.select(null); for (const entry of [...engine.models, ...engine.lights]) engine.remove(entry);
@@ -280,11 +284,13 @@ function selectionPanel() {
 }
 function refreshSettings() {
   const params = hatchParams();
-  toonEditor?.refresh(params);const drawing=document.querySelector('[data-view="hatch"]');if(drawing)drawing.textContent=engine.params.shadeMode==='toon'?'Toon':engine.params.shadeMode==='combined'?'Toon + hatching':'Hatching';
+  toonEditor?.refresh(toonParams());const drawing=document.querySelector('[data-view="hatch"]');if(drawing)drawing.textContent=engine.params.shadeMode==='toon'?'Toon':engine.params.shadeMode==='combined'?'Toon + hatching':'Hatching';
   for (const [key, control] of controls) control.update(params[key]);
   $('ink').value = params.ink; $('paper-color').value = params.paper; $('outline-color').value = params.outlineColor;
   $('depth-line-color').value=params.depthColor;$('depth-outline').checked=params.depthOutline;$('depth-across').checked=params.depthAcross;
   for(const key of depthKeys){const control=controls.get(key);if(control)control.input.disabled=!params.depthOutline;}$('depth-line-color').disabled=$('depth-across').disabled=!params.depthOutline;
+  $('hard-contour').checked=params.hardContour;$('hard-line-color').value=params.hardColor;
+  for(const key of hardKeys){const control=controls.get(key);if(control)control.input.disabled=!params.hardContour;}$('hard-line-color').disabled=!params.hardContour;
   $('cross').checked = params.cross; $('outline').checked = params.outline; $('quality').value = engine.params.quality;
   controls.get('crossThreshold').input.disabled = !params.cross; controls.get('outlineWidth').input.disabled = !params.outline;
   updatePresetStatus();
@@ -303,7 +309,7 @@ function viewMode(mode) { engine.setMode(mode); document.querySelectorAll('[data
 
 async function init() {
   try { engine = new EtchEngine($('viewport'), $('paper')); } catch (e) { $('loading').textContent = 'WebGL 2 is required. Open this app in an updated browser with graphics acceleration enabled.'; toast(e.message); return; }
-  toonEditor=new ToonEditor($('toon-settings'),{getStyle:hatchParams,onChange:patch=>{applyHatchPatch(patch);viewMode('hatch');},onScope:id=>{const entry=engine.models.find(e=>e.id===id);if(entry&&!entry.hatch)engine.setObjectParams(entry,{...engine.params});setHatchScope(entry||null);},resetButton});
+  toonEditor=new ToonEditor($('toon-settings'),{getStyle:toonParams,getOverride:()=>toonTarget?{custom:!!toonTarget.toon}:null,onCustom:enabled=>{if(!toonTarget)return;engine.setObjectToon(toonTarget,enabled?engine.params:null);populateHatchScope();refreshSettings();},onChange:changeToon,onScope:id=>setToonScope(engine.models.find(e=>e.id===id)||null),resetButton});
   try { savedPresets = readSavedPresets(localStorage); } catch (e) { toast(e.message || 'Browser storage is unavailable.'); }
   populatePresets();
   for (const [parent, key, name, min, max, step, suffix] of definitions) controls.set(key, range($(parent), key, name, min, max, step, suffix, engine.params[key], value => applyHatchPatch({ [key]: value }), defaults[key]));
@@ -318,7 +324,7 @@ async function init() {
   $('light-icons').after(resetButton('Light icons','on',()=>engine.setLightIconsVisible(true)));
   engine.addEventListener('navigation',e=>{$('fly-hint').hidden=!e.detail;});
   engine.addEventListener('rendering', () => { $('status').textContent = 'Tracing surface lines…'; });
-  engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes${e.detail.depthEdges?` + ${e.detail.depthEdges} depth edges`:''} · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
+  engine.addEventListener('rendered', e => { $('status').textContent = `${e.detail.lines.toLocaleString()} strokes${e.detail.hardEdges?` + ${e.detail.hardEdges} hard contours`:''}${e.detail.depthEdges?` + ${e.detail.depthEdges} depth edges`:''} · ${e.detail.width} × ${e.detail.height} · ${e.detail.ms} ms`; if (!importBusy) $('loading').hidden = true; });
   if(location.protocol==='http:'&&['127.0.0.1','localhost'].includes(location.hostname)&&['/','/index.html'].includes(location.pathname)){
     try { localPaths = (await fetch('/api/capabilities').then(r => r.ok ? r.json() : {})).localPaths === true; } catch {}
   }
@@ -347,10 +353,10 @@ async function init() {
   document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => viewMode(button.dataset.view));
   document.querySelectorAll('[data-demo]').forEach(button => button.onclick = async () => { try { const entry = await engine.demo(button.dataset.demo); engine.select(entry); engine.frame(entry); tab('selection'); } catch (e) { toast(e.message); } });
   $('hatch-tab').onclick = () => tab('hatch'); $('selection-tab').onclick = () => tab('selection');$('depth-tab').onclick=()=>tab('depth');$('toon-tab').onclick=()=>tab('toon');
-  for (const [id, key, name] of [['ink', 'ink', 'Line color'], ['paper-color', 'paper', 'Paper'], ['outline-color', 'outlineColor', 'Outline color'],['depth-line-color','depthColor','Depth line color']]) {
+  for (const [id, key, name] of [['ink', 'ink', 'Line color'], ['paper-color', 'paper', 'Paper'], ['outline-color', 'outlineColor', 'Outline color'],['depth-line-color','depthColor','Depth line color'],['hard-line-color','hardColor','Hard contour color']]) {
     $(id).oninput = () => applyHatchPatch({ [key]: $(id).value }); attachReset($(id), name, defaults[key], () => applyHatchPatch({ [key]: defaults[key] }));
   }
-  for (const [id, key, name] of [['cross', 'cross', 'Cross-hatching'], ['outline', 'outline', 'Outer outline'],['depth-outline','depthOutline','Depth outlines'],['depth-across','depthAcross','Across object boundaries']]) {
+  for (const [id, key, name] of [['cross', 'cross', 'Cross-hatching'], ['outline', 'outline', 'Outer outline'],['depth-outline','depthOutline','Depth outlines'],['depth-across','depthAcross','Across object boundaries'],['hard-contour','hardContour','Hard contours']]) {
     $(id).onchange = () => applyHatchPatch({ [key]: $(id).checked }); attachReset($(id), name, defaults[key] ? 'on' : 'off', () => applyHatchPatch({ [key]: defaults[key] }));
   }
   $('quality').onchange = () => { engine.setParams({ quality: +$('quality').value }); refreshSettings(); };
