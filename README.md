@@ -22,6 +22,9 @@ On other platforms, run `node server.mjs` in this folder and open the same addre
 - Add **Sun** or **Point** lights. Select a light to edit its position, intensity, and color. A sun also has an aim target; a point light has configurable distance falloff. Up to eight lights are supported.
 - The **Hatching** inspector affects all models. Change line color, constant thickness, shadow and light spacing, maximum stroke length, curvature influence, direction rotation, lighting, depth spacing, cavity emphasis, and cross-hatching.
 - Enable the **Outer outline** and choose its thickness and color.
+- The **↺** button beside each editable property reverts that property to its app default. Transform axes reset independently; a scale-axis reset does not change the other axes even when scale linking is enabled. Model defaults are position/rotation zero and scale one. Lights reset to their initial sun or point-light values.
+- At the top of **Hatching**, choose **Engraving**, **Fine pen**, **Open strokes**, **Woodcut**, **Copperplate**, or **Contour study**. Choosing a preset applies all global hatching settings, including colors and render detail. **Load preset** reapplies the selected preset after changes.
+- Click **Save preset**, enter a name, and save. Your named presets appear under **Saved presets** in the same dropdown and persist in this browser's local storage. Saving the same name updates that preset. Presets store hatching settings; scene objects and individual lights are not part of a preset. Browser profiles and site addresses each have their own saved preset list.
 - Use **Export PNG** to preview the illustration, then **Download PNG** to save it without the editing gizmo, grid, or selection box. **Render detail** sets the longest image dimension (subject to the viewport's 2× pixel limit).
 
 ## How the linework is made
@@ -43,6 +46,6 @@ Every hatch stroke uses the same screen-space width. Brightness, distance, and c
 
 ## Source
 
-`dist/main.js` — UI and workflow. `dist/engine.js` — scene, import, geometry analysis integration, and GPU buffers. `dist/curvature-worker.js` — curvature estimation. `dist/hatch-worker.js` — screen-space line tracing and contours. `dist/styles.css` — layout. `server.mjs` — optional local static server.
+`dist/main.js` — UI and workflow. `dist/settings.js` — defaults, built-in presets, validation, and preset storage. `dist/engine.js` — scene, import, geometry analysis integration, and GPU buffers. `dist/curvature-worker.js` — curvature estimation. `dist/hatch-worker.js` — screen-space line tracing and contours. `dist/styles.css` — layout. `server.mjs` — optional local static server.
 
 Three.js r180 is bundled under its MIT license; see **THREE-LICENSE.txt**.

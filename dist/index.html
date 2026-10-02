@@ -35,8 +35,8 @@
     <aside class="panel settings-panel" aria-label="Render settings">
       <div class="inspector-tabs" role="tablist"><button id="hatch-tab" role="tab" aria-selected="true" class="active">Hatching</button><button id="selection-tab" role="tab" aria-selected="false">Selection</button></div>
       <div id="hatch-settings" class="settings-content" role="tabpanel" aria-labelledby="hatch-tab">
-        <div class="preset-row"><label for="preset">Style</label><select id="preset"><option value="engraving">Engraving</option><option value="fine">Fine pen</option><option value="open">Open strokes</option></select></div>
-        <div class="color-row"><label>Line color <input type="color" id="ink" value="#1b2026"></label><label>Paper <input type="color" id="paper-color" value="#ffffff"></label></div>
+        <div class="preset-block"><div class="preset-row"><label for="preset">Preset</label><select id="preset"></select></div><div class="preset-actions"><button id="load-preset" class="button subtle">Load preset</button><button id="save-preset" class="button">Save preset</button></div><p id="preset-status" class="hint" aria-live="polite">Built-in preset</p></div>
+        <div class="color-row"><div class="color-property"><label>Line color <input type="color" id="ink" value="#1b2026"></label></div><div class="color-property"><label>Paper <input type="color" id="paper-color" value="#ffffff"></label></div></div>
         <div class="setting-section"><h2>Stroke</h2><div id="stroke-controls"></div></div>
         <div class="setting-section"><h2>Geometry flow</h2><div id="flow-controls"></div><p class="hint">Follows surface curvature. Long strokes stop at occlusions and sharp changes.</p></div>
         <div class="setting-section"><h2>Light & depth</h2><div id="tone-controls"></div></div>
@@ -49,6 +49,7 @@
     </aside>
   </main>
   <dialog id="export-dialog" aria-labelledby="export-title"><div class="export-title"><h2 id="export-title">Render preview</h2><button id="close-export" aria-label="Close render preview">✕</button></div><img id="export-image" alt="Rendered hatching illustration"><div class="export-footer"><span id="export-size"></span><a id="download-image" class="button accent" download="etch-render.png">Download PNG</a></div></dialog>
+  <dialog id="save-preset-dialog" aria-labelledby="save-preset-title"><form id="save-preset-form"><h2 id="save-preset-title">Save hatching preset</h2><label for="preset-name">Preset name</label><input id="preset-name" type="text" maxlength="60" required placeholder="e.g. Dark ink study" autocomplete="off"><p class="hint">Saved in this browser. Saving with an existing name updates that preset.</p><div class="dialog-actions"><button id="cancel-save-preset" type="button" class="button subtle">Cancel</button><button type="submit" class="button accent">Save</button></div></form></dialog>
   <div id="toast" class="toast" role="alert" hidden></div>
 </body>
 </html>

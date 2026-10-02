@@ -5,8 +5,8 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-
-export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100 };
+import { defaults, lightDefaults } from './settings.js';
+export { defaults } from './settings.js';
 
 const vertexShader = `
 in vec3 aFlow; in vec3 aGuide; in float aAnisotropy;
@@ -188,10 +188,10 @@ export class EtchEngine extends EventTarget {
   addLight(type = 'sun') {
     if (this.lights.length >= 8) throw new Error('Up to eight lights can be used at once.');
     const object = type === 'sun' ? new THREE.DirectionalLight(0xffffff, 1) : new THREE.PointLight(0xffffff, 20, 0, 2);
-    object.position.set(type === 'sun' ? -3 : 2, 4, 4); this.scene.add(object);
+    object.position.fromArray(lightDefaults[type].position); this.scene.add(object);
     const helper = type === 'sun' ? new THREE.DirectionalLightHelper(object, 0.4, 0xc9954f) : new THREE.PointLightHelper(object, 0.15, 0xc9954f);
     this.overlay.add(helper); helper.visible = false;
-    const entry = { id: `light-${++this.serial}`, type: 'light', lightType: type, name: type === 'sun' ? 'Sun light' : 'Point light', object, helper, intensity: type === 'sun' ? 1 : 2.2, falloff: 0.055, target: new THREE.Vector3(), color: '#ffffff', visible: true };
+    const entry = { id: `light-${++this.serial}`, type: 'light', lightType: type, name: type === 'sun' ? 'Sun light' : 'Point light', object, helper, intensity: lightDefaults[type].intensity, falloff: lightDefaults[type].falloff, target: new THREE.Vector3(), color: lightDefaults[type].color, visible: true };
     this.lights.push(entry); this.updateLight(entry); this.emit('scene'); return entry;
   }
   updateLight(entry) {
