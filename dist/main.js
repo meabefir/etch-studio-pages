@@ -1,6 +1,6 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js';
-import { ToonEditor } from './toon-editor.js';
+import { ToonEditor } from './toon-editor.js?v=color-ramps-1';
 import { EtchEngine } from './engine.js';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
 
