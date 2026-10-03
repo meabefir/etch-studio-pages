@@ -9,7 +9,7 @@ import { defaults, lightDefaults,hatchingSettings } from './settings.js';
 import {validateToonSettings} from './toon.js';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
-import { starterSigil, validateSigil } from './sigil-data.js';
+import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-rotation-1';
 import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';

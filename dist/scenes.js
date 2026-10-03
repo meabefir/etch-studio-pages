@@ -1,7 +1,7 @@
 import { validateSettings,hatchingSettings } from './settings.js';
 import {toonKeys,validateToonSettings} from './toon.js';
 import { projections } from './lenses.js';
-import { validateSigil } from './sigil-data.js';
+import { validateSigil } from './sigil-data.js?v=sigil-rotation-1';
 import { validateOutput } from './output-settings.js';
 export const SCENE_STORAGE_KEY = 'etch.scenes.v1';
 const vector = (v, positive = false) => Array.isArray(v) && v.length === 3 && v.every(n => Number.isFinite(n) && Math.abs(n) < 1e9 && (!positive || n > 0));
