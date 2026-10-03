@@ -10,7 +10,7 @@ import {validateToonSettings} from './toon.js?v=stop-blending-1';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
 import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-rotation-1';
-import { configureOrbit, FlyNavigation } from './navigation.js';
+import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';

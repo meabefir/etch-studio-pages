@@ -1,8 +1,9 @@
 import * as THREE from './vendor/build/three.module.js';
 
 export function configureOrbit(orbit) {
-  orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
-  orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+  orbit.mouseButtons.LEFT = null;
+  // OrbitControls switches ROTATE to PAN when Shift is held.
+  orbit.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
   orbit.mouseButtons.RIGHT = null;
 }
 
