@@ -7,21 +7,21 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { defaults, lightDefaults,hatchingSettings } from './settings.js';
 import {validateToonSettings} from './toon.js';
-import {HardContourRenderer} from './hard-contours.js';
-import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js';
+import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
+import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
 import { starterSigil, validateSigil } from './sigil-data.js';
 import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
-import { renderOutput } from './output-renderer.js';
-import { copyOutputCamera } from './output-frame.js';
+import { renderOutput } from './output-renderer.js?v=crease-flow-1';
+import { copyOutputCamera } from './output-frame.js?v=crease-flow-1';
 export { defaults } from './settings.js';
 
 const vertexShader = `
 in vec3 aFlow; in vec3 aGuide; in float aAnisotropy;
-uniform float uAspect;
-out vec3 vNormal; out vec3 vPosition; out vec2 vFlow; out vec2 vGuide; out float vConfidence;
+uniform float uAspect; uniform float uAngle;
+out vec3 vNormal; out vec3 vPosition; out vec2 vFlow; out vec2 vCrossFlow; out vec3 vGuide; out float vConfidence;
 vec2 projectLine(vec3 p, vec3 tangent) {
   vec4 a = projectionMatrix * vec4(p, 1.0);
   vec4 b = projectionMatrix * vec4(p + tangent * 0.01, 1.0);
@@ -32,19 +32,29 @@ vec2 projectLine(vec3 p, vec3 tangent) {
 void main() {
   vec4 p = modelViewMatrix * vec4(position, 1.0);
   vPosition = p.xyz; vNormal = normalize(normalMatrix * normal);
-  vFlow = projectLine(p.xyz, normalize(mat3(modelViewMatrix) * aFlow));
-  vGuide = projectLine(p.xyz, normalize(mat3(modelViewMatrix) * aGuide));
+  vec3 tangent=mat3(modelViewMatrix)*aFlow;
+  tangent=normalize(tangent-vNormal*dot(tangent,vNormal));
+  tangent=tangent*cos(uAngle)+cross(vNormal,tangent)*sin(uAngle);
+  vFlow = projectLine(p.xyz,tangent);
+  vCrossFlow = projectLine(p.xyz,cross(vNormal,tangent));
+  vGuide = normalize(mat3(modelViewMatrix) * aGuide);
   vConfidence = aAnisotropy;
   gl_Position = projectionMatrix * p;
 }`;
 const fragmentShader = `
 precision highp float;
-in vec3 vNormal; in vec3 vPosition; in vec2 vFlow; in vec2 vGuide; in float vConfidence;
+in vec3 vNormal; in vec3 vPosition; in vec2 vFlow; in vec2 vCrossFlow; in vec3 vGuide; in float vConfidence;
+uniform mat4 projectionMatrix; uniform float uAspect; uniform float uAngle;
 uniform float uId; uniform float uFar; uniform float uFlow; uniform float uAmbient;
 uniform int uCount; uniform int uShadeMode; uniform vec4 uLights[8]; uniform vec2 uPowers[8];
 layout(location=0) out vec4 outNormal;
 layout(location=1) out vec4 outField;
 layout(location=2) out vec4 outDepth;
+vec2 projectLine(vec3 p,vec3 tangent){
+  vec4 a=projectionMatrix*vec4(p,1.0),b=projectionMatrix*vec4(tangent,0.0);
+  vec2 d=b.xy*a.w-a.xy*b.w;d.x*=uAspect;d.y=-d.y;d=normalize(d+vec2(.0000001));
+  return vec2(d.x*d.x-d.y*d.y,2.0*d.x*d.y);
+}
 void main() {
   vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
   float brightness = uAmbient;
@@ -58,9 +68,13 @@ void main() {
     if(uPowers[i].x>0.000001)averagedDirection+=direction;
   }
   if(uShadeMode>0)brightness=length(averagedDirection)>0.000001?max(0.0,dot(n,normalize(averagedDirection))):0.0;
-  vec2 flow = normalize(mix(vGuide, vFlow, uFlow * smoothstep(0.03, 0.35, vConfidence)) + vec2(0.00001));
+  float follow=uFlow*smoothstep(0.03,0.35,vConfidence);
+  vec3 guide=normalize(vGuide-n*dot(vGuide,n));
+  guide=guide*cos(uAngle)+cross(normalize(vNormal),guide)*sin(uAngle);
+  vec2 flow=normalize(mix(projectLine(vPosition,guide),vFlow,follow)+vec2(.00001));
+  vec2 crossFlow=normalize(mix(projectLine(vPosition,cross(n,guide)),vCrossFlow,follow)+vec2(.00001));
   float d = clamp(-vPosition.z / uFar, 0.0, 1.0) * 65535.0;
-  outNormal = vec4(n*0.5+0.5, uId/255.0);
+  outNormal = vec4(crossFlow*.5+.5,1.0,uId/255.0);
   outField = vec4(flow*0.5+0.5, clamp(brightness, 0.0, 1.0), 1.0);
   outDepth = vec4(floor(d/256.0)/255.0, mod(floor(d),256.0)/255.0, 0.0, 1.0);
 }`;
@@ -113,11 +127,11 @@ export class EtchEngine extends EventTarget {
       let object = hit?.object; while (object && !object.userData.entry) object = object.parent;
       this.select(object?.userData.entry || null);
     });
-    this.curvature = new Worker(new URL('./curvature-worker.js', import.meta.url), { type: 'module' });
+    this.curvature = new Worker(new URL('./curvature-worker.js?v=crease-flow-1', import.meta.url), { type: 'module' });
     this.pendingGeometry = new Map();
     this.curvature.onmessage = ({ data }) => { const callback = this.pendingGeometry.get(data.id); if (!callback) return; this.pendingGeometry.delete(data.id); data.error ? callback.reject(new Error(data.error)) : callback.resolve(data); };
     this.curvature.onerror = e => { for (const pending of this.pendingGeometry.values()) pending.reject(new Error(e.message)); this.pendingGeometry.clear(); };
-    this.hatcher = new Worker(new URL('./hatch-worker.js', import.meta.url), { type: 'module' });
+    this.hatcher = new Worker(new URL('./hatch-worker.js?v=crease-flow-1', import.meta.url), { type: 'module' });
     this.hatcher.onmessage = ({ data }) => {
       this.busy = false;
       if (data.error) { this.emit('error', data.error); return; }
@@ -259,12 +273,23 @@ export class EtchEngine extends EventTarget {
     for (let i = 0; i < pos.count; i++) { position.set([pos.getX(i), pos.getY(i), pos.getZ(i)], i * 3); normal.set([nor.getX(i), nor.getY(i), nor.getZ(i)], i * 3); }
     const index = geometry.index ? new Uint32Array(geometry.index.array) : null, id = ++this.serial;
     const data = await new Promise((resolve, reject) => { this.pendingGeometry.set(id, { resolve, reject }); this.curvature.postMessage({ id, position, normal, index }, [position.buffer, normal.buffer, ...(index ? [index.buffer] : [])]); });
+    // A source vertex can belong to several sharp faces. Split only those
+    // corners and copy all attributes using the worker's source mapping.
+    for(const [key,attribute]of Object.entries(geometry.attributes)){
+      const values=new Float32Array(data.sourceIndex.length*attribute.itemSize);
+      for(let i=0;i<data.sourceIndex.length;i++)for(let k=0;k<attribute.itemSize;k++)values[i*attribute.itemSize+k]=attribute.getComponent(data.sourceIndex[i],k);
+      geometry.setAttribute(key,new THREE.BufferAttribute(values,attribute.itemSize));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(data.index,1));geometry.setAttribute('normal',new THREE.BufferAttribute(data.normal,3));geometry.morphAttributes={};
+    geometry.userData.flowHasCreases=data.creaseCount>0;
     geometry.setAttribute('aFlow', new THREE.BufferAttribute(data.flow, 3)); geometry.setAttribute('aGuide', new THREE.BufferAttribute(data.guide, 3)); geometry.setAttribute('aAnisotropy', new THREE.BufferAttribute(data.anisotropy, 1));
     return geometry;
   }
+  hasFlowBarriers(){let found=false;for(const entry of this.models)if(entry.visible)entry.object.traverse(mesh=>{if(mesh.isMesh&&mesh.visible&&mesh.geometry.userData.flowHasCreases)found=true;});return found;}
+  hasSurfaceCross(){return this.models.some(entry=>entry.visible&&this.styleFor(entry).cross&&this.styleFor(entry).shadeMode!=='toon');}
   fieldMaterial(id) {
     return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide, uniforms: {
-      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAmbient: { value: this.params.ambient }, uCount: { value: 0 },uShadeMode:{value:0},
+      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAngle:{value:this.params.angle*Math.PI/180},uAmbient: { value: this.params.ambient }, uCount: { value: 0 },uShadeMode:{value:0},
       uLights: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uPowers: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) }
     } });
   }
@@ -412,29 +437,33 @@ export class EtchEngine extends EventTarget {
     try {
       const r = this.container.getBoundingClientRect(), scale = Math.min(2, this.params.quality / Math.max(r.width, r.height)), w = Math.max(2, Math.round(r.width * scale)), h = Math.max(2, Math.round(r.height * scale));
       if (!this.target || this.target.width !== w || this.target.height !== h) { this.target?.dispose(); this.target = new THREE.WebGLRenderTarget(w, h, { count: 3, type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); }
-      const {normal,field,depth}=this.geometryBuffers(this.camera,w,h,this.target);
+      const {normal,field,depth,hasFlowBarriers}=this.geometryBuffers(this.camera,w,h,this.target);
       const buffers = warpBuffers(normal, field, depth, w, h, this.lensSettings());
-      this.hatcher.postMessage({ id, width: w, height: h, scale, ...buffers, far: this.camera.far, params: this.params, objectParams: this.models.map(entry => this.styleFor(entry)) }, [buffers.normal.buffer, buffers.field.buffer, buffers.depth.buffer]);
+      this.hatcher.postMessage({ id, width: w, height: h, scale, ...buffers,hasFlowBarriers,surfaceCross:true, far: this.camera.far, params: this.params, objectParams: this.models.map(entry => this.styleFor(entry)) }, [buffers.normal.buffer, buffers.field.buffer, buffers.depth.buffer]);
     } catch (e) { this.busy = false; this.emit('error', e.message); }
   }
   geometryBuffers(camera,w,h,target){
     this.scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
-    const lights=this.lights.filter(x=>x.visible),originals=[],normal=new Uint8Array(w*h*4),field=new Uint8Array(w*h*4),depth=new Uint8Array(w*h*4);
+    const lights=this.lights.filter(x=>x.visible),originals=[],normal=new Uint8Array(w*h*4),field=new Uint8Array(w*h*4),depth=new Uint8Array(w*h*4),hasFlowBarriers=this.hasFlowBarriers();
     const renderer=this.renderer,oldTarget=renderer.getRenderTarget(),clear=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha(),auto=renderer.autoClear;
     try{
       for(let m=0;m<this.models.length;m++)this.models[m].object.traverse(mesh=>{
         if(!mesh.isMesh)return;originals.push([mesh,mesh.material]);const mat=mesh.userData.fieldMaterial;mesh.material=mat;
-        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;u.uShadeMode.value=style.shadeMode==='toon'?1:style.shadeMode==='combined'?2:0;
+        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAngle.value=style.angle*Math.PI/180;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;u.uShadeMode.value=style.shadeMode==='toon'?1:style.shadeMode==='combined'?2:0;
         for(let i=0;i<lights.length;i++){const light=lights[i],v=light.object.getWorldPosition(new THREE.Vector3());if(light.lightType==='sun')v.sub(light.target).normalize().transformDirection(camera.matrixWorldInverse);else v.applyMatrix4(camera.matrixWorldInverse);
           u.uLights.value[i].set(v.x,v.y,v.z,light.lightType==='sun'?0:1);const c=light.object.color;u.uPowers.value[i].set(light.intensity*(c.r*.2126+c.g*.7152+c.b*.0722),light.falloff);}
       });
       renderer.setRenderTarget(target);renderer.setClearColor(0,0);renderer.autoClear=true;renderer.render(this.scene,camera);
       renderer.readRenderTargetPixels(target,0,0,w,h,normal,0,0);renderer.readRenderTargetPixels(target,0,0,w,h,field,0,1);renderer.readRenderTargetPixels(target,0,0,w,h,depth,0,2);
+      if(hasFlowBarriers){
+        this.flowEdges??=new HardContourRenderer({barrier:true});const barriers=this.flowEdges.render(this,camera,w,h);
+        for(let j=0;j<depth.length;j+=4)if(barriers[j]&&barriers[j]===normal[j+3])depth[j+2]|=1;
+      }
       if(this.models.some(entry=>entry.visible&&this.styleFor(entry).hardContour)){
         this.hardContours??=new HardContourRenderer();const contours=this.hardContours.render(this,camera,w,h);
-        for(let j=0;j<depth.length;j+=4)if(contours[j]&&contours[j]===normal[j+3])depth[j+2]=255;
+        for(let j=0;j<depth.length;j+=4)if(contours[j]&&contours[j]===normal[j+3])depth[j+2]|=2;
       }
-      return {normal,field,depth};
+      return {normal,field,depth,hasFlowBarriers,surfaceCross:true};
     }finally{renderer.setRenderTarget(oldTarget);renderer.setClearColor(clear,alpha);renderer.autoClear=auto;for(const [mesh,material]of originals)mesh.material=material;}
   }
   captureOutputView(){this.camera.updateMatrixWorld(true);this.scene.updateMatrixWorld(true);return {camera:copyOutputCamera(this.camera),lens:{...this.lensSettings()},referenceHeight:Math.max(1,this.container.clientHeight),mode:this.mode,name:this.activeCamera.name};}

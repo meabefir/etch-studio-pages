@@ -41,8 +41,8 @@ export function creaseSegments(geometry,threshold,normalMatrix=new THREE.Matrix3
 }
 
 export class HardContourRenderer {
-  constructor(){
-    this.records=new WeakMap();this.lines=new THREE.Scene();
+  constructor({barrier=false}={}){
+    this.barrier=barrier;this.records=new WeakMap();this.lines=new THREE.Scene();
     this.surface=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
   }
   render(engine,camera,w,h){
@@ -50,17 +50,17 @@ export class HardContourRenderer {
     if(!this.target)this.target=new THREE.WebGLRenderTarget(w,h,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true});else this.target.setSize(w,h);
     this.lines.clear();
     for(let i=0;i<engine.models.length;i++){
-      const entry=engine.models[i],style=engine.styleFor(entry);if(!entry.visible||!style.hardContour)continue;
+      const entry=engine.models[i],style=engine.styleFor(entry);if(!entry.visible||(!this.barrier&&!style.hardContour))continue;
       entry.object.traverse(mesh=>{
-        if(!mesh.isMesh||!mesh.visible)return;
-        const matrix=new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld),key=[style.hardAngle,mesh.geometry.attributes.position.version,mesh.geometry.index?.version,...matrix.elements].join(',');
+        if(!mesh.isMesh||!mesh.visible||(this.barrier&&!mesh.geometry.userData.flowHasCreases))return;
+        const angle=this.barrier?45:style.hardAngle,matrix=new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld),key=[angle,mesh.geometry.attributes.position.version,mesh.geometry.index?.version,...matrix.elements].join(',');
         let record=this.records.get(mesh.geometry);
         if(!record){
           const material=new THREE.ShaderMaterial({depthWrite:false,blending:THREE.NoBlending,uniforms:{objectId:{value:i+1}},vertexShader:'void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'uniform float objectId;void main(){gl_FragColor=vec4(objectId/255.0,0.0,0.0,1.0);}'});
           record={key:null,line:new THREE.LineSegments(new THREE.BufferGeometry(),material)};record.line.matrixAutoUpdate=false;this.records.set(mesh.geometry,record);
           mesh.geometry.addEventListener('dispose',()=>{record.line.geometry.dispose();material.dispose();this.records.delete(mesh.geometry);topologyCache.delete(mesh.geometry);});
         }
-        if(record.key!==key){record.line.geometry.dispose();record.line.geometry=new THREE.BufferGeometry();record.line.geometry.setAttribute('position',new THREE.BufferAttribute(creaseSegments(mesh.geometry,style.hardAngle,matrix),3));record.key=key;}
+        if(record.key!==key){record.line.geometry.dispose();record.line.geometry=new THREE.BufferGeometry();record.line.geometry.setAttribute('position',new THREE.BufferAttribute(creaseSegments(mesh.geometry,angle,matrix),3));record.key=key;}
         record.line.material.uniforms.objectId.value=i+1;record.line.matrix.copy(mesh.matrixWorld);this.lines.add(record.line);
       });
     }

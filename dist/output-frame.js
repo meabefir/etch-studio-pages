@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {isLens,lensMap} from './lenses.js';
+import {isLens,lensMap} from './lenses.js?v=crease-flow-1';
 
 export function copyOutputCamera(source){const camera=source.clone();camera.aspect=source.aspect;return camera;}
 
@@ -45,8 +45,12 @@ export function warpFramedBuffers(normal,field,depth,w,h,capture,output,source){
     const src=(sy*w+sx)*4,dst=(y*w+x)*4;if(!normal[src+3])continue;
     for(let k=0;k<4;k++){n[dst+k]=normal[src+k];f[dst+k]=field[src+k];if(d)d[dst+k]=depth[src+k];}
     if(!field.length)continue;
-    const angle=.5*Math.atan2(field[src+1]/127.5-1,field[src]/127.5-1),vx=Math.cos(angle),vy=-Math.sin(angle),qx=lensMap(px+epsilon,py,capture.lens)||q,qy=lensMap(px,py+epsilon,capture.lens)||q;
+    const qx=lensMap(px+epsilon,py,capture.lens)||q,qy=lensMap(px,py+epsilon,capture.lens)||q;
     const a=(qx[0]-q[0])/epsilon,b=(qy[0]-q[0])/epsilon,c=(qx[1]-q[1])/epsilon,e=(qy[1]-q[1])/epsilon,det=a*e-b*c;if(Math.abs(det)<1e-8)continue;
-    const ux=(e*vx-b*vy)/det,uy=-(-c*vx+a*vy)/det,length=Math.hypot(ux,uy)||1;f[dst]=Math.round(((ux*ux-uy*uy)/(length*length)+1)*127.5);f[dst+1]=Math.round((2*ux*uy/(length*length)+1)*127.5);
+    for(let family=0;family<2;family++){
+      const input=family?normal:field,result=family?n:f;
+      const angle=.5*Math.atan2(input[src+1]/127.5-1,input[src]/127.5-1),vx=Math.cos(angle),vy=-Math.sin(angle);
+      const ux=(e*vx-b*vy)/det,uy=-(-c*vx+a*vy)/det,length=Math.hypot(ux,uy)||1;result[dst]=Math.round(((ux*ux-uy*uy)/(length*length)+1)*127.5);result[dst+1]=Math.round((2*ux*uy/(length*length)+1)*127.5);
+    }
   }return {normal:n,field:f,depth:d};
 }

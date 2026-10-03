@@ -55,16 +55,17 @@ export function warpBuffers(normal, field, depth, w, h, settings) {
     const src = (sy * w + sx) * 4, dst = (y * w + x) * 4;
     if (!normal[src + 3]) continue;
     for (let k = 0; k < 4; k++) { n[dst + k] = normal[src + k]; f[dst + k] = field[src + k]; d[dst + k] = depth[src + k]; }
-    const angle = 0.5 * Math.atan2(field[src + 1] / 127.5 - 1, field[src] / 127.5 - 1);
-    // Field Y points down while the render buffers and lens coordinates point up.
-    const vx = Math.cos(angle), vy = -Math.sin(angle);
     const qx = lensMap(px + epsilon, py, settings) || q, qy = lensMap(px, py + epsilon, settings) || q;
     const a = (qx[0] - q[0]) / epsilon, b = (qy[0] - q[0]) / epsilon, c = (qx[1] - q[1]) / epsilon, e = (qy[1] - q[1]) / epsilon;
     const determinant = a * e - b * c;
     if (Math.abs(determinant) < 1e-8) continue;
-    const ux = (e * vx - b * vy) / determinant, uy = -(-c * vx + a * vy) / determinant, length = Math.hypot(ux, uy) || 1;
-    f[dst] = Math.round(((ux * ux - uy * uy) / (length * length) + 1) * 127.5);
-    f[dst + 1] = Math.round((2 * ux * uy / (length * length) + 1) * 127.5);
+    // Both hatch families are projected surface tangents. Field Y points down.
+    for(let family=0;family<2;family++){
+      const input=family?normal:field,output=family?n:f;
+      const angle=.5*Math.atan2(input[src+1]/127.5-1,input[src]/127.5-1),vx=Math.cos(angle),vy=-Math.sin(angle);
+      const ux=(e*vx-b*vy)/determinant,uy=-(-c*vx+a*vy)/determinant,length=Math.hypot(ux,uy)||1;
+      output[dst]=Math.round(((ux*ux-uy*uy)/(length*length)+1)*127.5);output[dst+1]=Math.round((2*ux*uy/(length*length)+1)*127.5);
+    }
   }
   return { normal: n, field: f, depth: d };
 }

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {validateOutput,outputDimensions} from './output-settings.js';
-import {framedCamera,sourceFrame,warpFramedBuffers} from './output-frame.js';
-import {isLens} from './lenses.js';
-import {outputTiles,tileCamera,packedBuffers,packTile,warpPackedBuffers} from './output-tiles.js';
+import {framedCamera,sourceFrame,warpFramedBuffers} from './output-frame.js?v=crease-flow-1';
+import {isLens} from './lenses.js?v=crease-flow-1';
+import {outputTiles,tileCamera,packedBuffers,packTile,warpPackedBuffers} from './output-tiles.js?v=crease-flow-1';
 
 const aborted=()=>new DOMException('Image render cancelled.','AbortError');
 export async function renderOutput(engine,capture,value,{preview=false,signal,onProgress}={}){
@@ -18,7 +18,9 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
     if(capture.mode==='hatch'){
       if(!tiled)buffers=engine.geometryBuffers(camera,w,h,target);
       else{
-        buffers=packedBuffers(w,h,engine.models.some(entry=>entry.visible&&engine.styleFor(entry).hardContour));let completed=0;
+        buffers=packedBuffers(w,h,engine.models.some(entry=>entry.visible&&engine.styleFor(entry).hardContour),engine.hasFlowBarriers?.()||false,engine.hasSurfaceCross?.()||false);
+        // Rotation is already applied on the surface, including when cross-hatching is off.
+        buffers.surfaceCross=true;let completed=0;
         for(const tile of tiles){
           if(signal?.aborted)throw aborted();target.setSize(tile.width,tile.height);
           packTile(buffers,engine.geometryBuffers(tileCamera(camera,w,h,tile),tile.width,tile.height,target),w,h,tile);
@@ -39,6 +41,8 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
       if(colors)buffers={normal:colors,field:new Uint8Array(0),depth:null};
     }
   }finally{target.dispose();}
+  const hasFlowBarriers=!!buffers?.hasFlowBarriers||!!buffers?.barrier;
+  const surfaceCross=!!buffers?.surfaceCross||!!buffers?.crossField;
   if(buffers)buffers=buffers.packed?warpPackedBuffers(buffers,w,h,capture,settings,frame):warpFramedBuffers(buffers.normal,buffers.field,buffers.depth,w,h,capture,settings,frame);
   if(signal?.aborted)throw aborted();
   if(capture.mode==='solid'){
@@ -46,13 +50,13 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
     context.globalCompositeOperation='destination-over';context.fillStyle=engine.params.paper;context.fillRect(0,0,w,h);return {canvas,lines:0,ms:0};
   }
   const scale=settings.strokes==='pixels'?1:h/capture.referenceHeight*settings.zoom;
-  const worker=new Worker(new URL('./hatch-worker.js',import.meta.url),{type:'module'});
+  const worker=new Worker(new URL('./hatch-worker.js?v=crease-flow-1',import.meta.url),{type:'module'});
   onProgress?.(`Tracing ${w} × ${h} px…`);
   return new Promise((resolve,reject)=>{
     const cleanup=()=>{worker.terminate();signal?.removeEventListener('abort',cancel);},cancel=()=>{cleanup();reject(aborted());};signal?.addEventListener('abort',cancel,{once:true});
     worker.onerror=e=>{cleanup();reject(new Error(e.message||'Image rendering failed.'));};
     worker.onmessage=({data})=>{cleanup();if(data.error)return reject(new Error(data.error));context.drawImage(data.bitmap,0,0);data.bitmap.close();resolve({canvas,lines:data.lines,hardEdges:data.hardEdges,ms:data.ms});};
-    worker.postMessage({id:0,width:w,height:h,scale,...buffers,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer,...(buffers.hard?[buffers.hard.buffer]:[])]);
+    worker.postMessage({id:0,width:w,height:h,scale,...buffers,hasFlowBarriers,surfaceCross,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer,...(buffers.hard?[buffers.hard.buffer]:[]),...(buffers.barrier?[buffers.barrier.buffer]:[]),...(buffers.crossField?[buffers.crossField.buffer]:[])]);
   });
 }
 

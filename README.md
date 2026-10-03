@@ -73,15 +73,15 @@ The generator sweeps variable-radius cubic Bézier curves into sparse blocks of 
 
 ## How the linework is made
 
-The app welds coincident geometry vertices for analysis, fits a local symmetric shape operator to mesh normal variation, and smooths the resulting principal curvature line field over neighboring tangent planes. Isotropic regions use an object-space tangent guide. This field is projected into screen space.
+The app welds coincident positions for topology, then separates surface fans at geometric creases sharper than 45°. Normals and curvature are reconstructed from triangle geometry, so imported smooth normals cannot round off a cube. Coplanar regions use one boundary-aligned tangent guide across the whole patch; curved regions fit a local shape operator and smooth their principal curvature field only within the connected surface fan. Smooth attribute seams share the analysis while sharp corners remain separate.
 
-Three.js renders visible object IDs, surface normals, projected line directions, diffuse lighting, and linear view depth into three offscreen buffers. A worker traces bidirectional streamlines with midpoint integration and checks nearby strokes to maintain spacing. Depth jumps and silhouettes stop a stroke. New seeds along accepted lines encourage long, parallel families of strokes. Cross-hatching uses the perpendicular field only in sufficiently dark areas.
+Both hatch families and Flow rotation are defined in the surface tangent plane before projection. Planar guides are projected per pixel, keeping lines straight in perspective; the perpendicular family also follows the actual surface rather than a screen-space 90° turn. Three.js renders visible object IDs, both projected line fields, diffuse lighting, and linear view depth into three offscreen buffers. A worker traces bidirectional streamlines with midpoint integration and checks nearby strokes to maintain spacing. Visible geometric creases stop tracing even when Hard contours is disabled; that toggle controls the extra ink. Depth jumps and silhouettes also stop strokes. New seeds along accepted lines encourage long, parallel families. Lighting controls spacing and visibility, never the geometry field. Lens cameras transport both families before tracing, and tiled PNG exports retain the same crease barriers and directions.
 
 Every hatch stroke uses the same screen-space width. Brightness, distance, and cavity shading vary **spacing**, not stroke thickness. Outer contours are separate complete silhouette loops with their own width. Optional depth outlines detect discontinuities in linear view depth, reject continuing surface slopes, thin the detected edges, and join them into smoothed paths. These lines also have constant screen-space width.
 
 ## Practical limits
 
-- This is a procedural engraving approximation. It follows mesh curvature and surface features; it does not reproduce an illustrator's hand-authored artistic choices. Smooth normals and enough mesh detail improve the result.
+- This is a procedural engraving approximation. It follows mesh curvature and surface features; it does not reproduce an illustrator's hand-authored artistic choices. Enough mesh detail improves the result; surface normals are reconstructed while preserving geometric creases.
 - Material colors, textures, imported lights/cameras, and animation are ignored. GLB supports embedded Draco and Meshopt geometry decoding. External geometry dependencies must be embedded in the GLB.
 - Lighting uses diffuse illumination, ambient light, and a screen-space cavity approximation. It does not calculate full shadow maps or global illumination.
 - During camera and gizmo interaction the app shows a shaded preview, then retraces the hatching when interaction ends. Dense models and print detail take longer to process.
@@ -103,4 +103,4 @@ Three.js r180 is bundled under its MIT license; see **THREE-LICENSE.txt**.
 
 `dist/toon.js` validates color ramps and supplies interpolation tables; `dist/toon-editor.js` provides the ramp editor; `dist/toon-presets.js` supplies built-in palettes and named color ramp storage. `dist/sigil-smoothing.js` applies angle-protected mesh smoothing with optional volume preservation.
 
-`dist/hard-contours.js` extracts true face-angle creases and depth-tests them. `dist/contour-paths.js` joins visible crease pixels and reserves their screen-space footprint before tracing hatches.
+`dist/hard-contours.js` extracts true face-angle creases and depth-tests them. `dist/contour-paths.js` joins visible crease pixels and reserves their screen-space footprint before tracing hatches. `dist/flow-barriers.js` stops tracing across sharp geometry even when contour ink is off.
