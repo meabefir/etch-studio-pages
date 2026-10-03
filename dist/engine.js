@@ -5,8 +5,8 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { defaults, lightDefaults,hatchingSettings } from './settings.js';
-import {validateToonSettings} from './toon.js';
+import { defaults, lightDefaults,hatchingSettings } from './settings.js?v=stop-blending-1';
+import {validateToonSettings} from './toon.js?v=stop-blending-1';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
 import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-rotation-1';
@@ -14,9 +14,9 @@ import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
-import { renderOutput } from './output-renderer.js?v=crease-flow-1';
+import { renderOutput } from './output-renderer.js?v=stop-blending-1';
 import { copyOutputCamera } from './output-frame.js?v=crease-flow-1';
-export { defaults } from './settings.js';
+export { defaults } from './settings.js?v=stop-blending-1';
 
 const vertexShader = `
 in vec3 aFlow; in vec3 aGuide; in float aAnisotropy;
@@ -131,7 +131,7 @@ export class EtchEngine extends EventTarget {
     this.pendingGeometry = new Map();
     this.curvature.onmessage = ({ data }) => { const callback = this.pendingGeometry.get(data.id); if (!callback) return; this.pendingGeometry.delete(data.id); data.error ? callback.reject(new Error(data.error)) : callback.resolve(data); };
     this.curvature.onerror = e => { for (const pending of this.pendingGeometry.values()) pending.reject(new Error(e.message)); this.pendingGeometry.clear(); };
-    this.hatcher = new Worker(new URL('./hatch-worker.js?v=crease-flow-1', import.meta.url), { type: 'module' });
+    this.hatcher = new Worker(new URL('./hatch-worker.js?v=stop-blending-1', import.meta.url), { type: 'module' });
     this.hatcher.onmessage = ({ data }) => {
       this.busy = false;
       if (data.error) { this.emit('error', data.error); return; }

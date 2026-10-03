@@ -1,4 +1,4 @@
-import {rampTable,rgb} from './toon.js';
+import {rampTable,rgb} from './toon.js?v=stop-blending-1';
 import {hardContourPaths} from './contour-paths.js';
 import {flowBarriers} from './flow-barriers.js?v=crease-flow-1';
 // Evenly spaced, bidirectional screen-space streamlines with midpoint integration.

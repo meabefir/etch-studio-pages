@@ -1,4 +1,4 @@
-import {toonDefaults,toonKeys,validateRamp} from './toon.js';
+import {toonDefaults,toonKeys,validateRamp} from './toon.js?v=stop-blending-1';
 export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026',hardContour:false,hardAngle:45,hardWidth:1.5,hardColor:'#1b2026',...toonDefaults };
 export const depthKeys=['depthOutline','depthThreshold','depthFloor','depthRadius','depthWidth','depthOpacity','depthMinLength','depthSmooth','depthSlope','depthAcross','depthColor'];
 export const hardKeys=['hardContour','hardAngle','hardWidth','hardColor'];

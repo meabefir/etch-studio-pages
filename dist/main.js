@@ -1,12 +1,12 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js';
-import { ToonEditor } from './toon-editor.js?v=color-ramps-1';
-import { EtchEngine } from './engine.js?v=sigil-rotation-1';
-import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js';
+import { ToonEditor } from './toon-editor.js?v=stop-blending-1';
+import { EtchEngine } from './engine.js?v=stop-blending-1';
+import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=stop-blending-1';
 
 import { starterSigil } from './sigil-data.js?v=sigil-rotation-1';
 import { cameraDefaults, projections } from './lenses.js';
-import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=sigil-rotation-1';
+import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=stop-blending-1';
 
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;

@@ -50,7 +50,7 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
     context.globalCompositeOperation='destination-over';context.fillStyle=engine.params.paper;context.fillRect(0,0,w,h);return {canvas,lines:0,ms:0};
   }
   const scale=settings.strokes==='pixels'?1:h/capture.referenceHeight*settings.zoom;
-  const worker=new Worker(new URL('./hatch-worker.js?v=crease-flow-1',import.meta.url),{type:'module'});
+  const worker=new Worker(new URL('./hatch-worker.js?v=stop-blending-1',import.meta.url),{type:'module'});
   onProgress?.(`Tracing ${w} × ${h} px…`);
   return new Promise((resolve,reject)=>{
     const cleanup=()=>{worker.terminate();signal?.removeEventListener('abort',cancel);},cancel=()=>{cleanup();reject(aborted());};signal?.addEventListener('abort',cancel,{once:true});

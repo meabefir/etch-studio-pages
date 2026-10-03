@@ -9,11 +9,13 @@ export function validateToonSettings(value){
 export const rgb=color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));
 export function validateRamp(value){
   if(!Array.isArray(value)||value.length<2||value.length>128)throw new Error('A color ramp needs 2–128 stops.');
-  const ids=new Set();return value.map(stop=>{if(!stop||typeof stop.id!=='string'||!stop.id||stop.id.length>80||ids.has(stop.id)||!Number.isFinite(stop.position)||stop.position<0||stop.position>1||!/^#[0-9a-f]{6}$/i.test(stop.color))throw new Error('Invalid color ramp stop.');ids.add(stop.id);return {id:stop.id,position:stop.position,color:stop.color.toLowerCase()};}).sort((a,b)=>a.position-b.position);
+  const ids=new Set();return value.map(stop=>{if(!stop||typeof stop.id!=='string'||!stop.id||stop.id.length>80||ids.has(stop.id)||!Number.isFinite(stop.position)||stop.position<0||stop.position>1||!/^#[0-9a-f]{6}$/i.test(stop.color)||(stop.interpolation!==undefined&&!['inherit','linear','constant'].includes(stop.interpolation)))throw new Error('Invalid color ramp stop.');ids.add(stop.id);return {id:stop.id,position:stop.position,color:stop.color.toLowerCase(),...(stop.interpolation&&stop.interpolation!=='inherit'?{interpolation:stop.interpolation}:{})};}).sort((a,b)=>a.position-b.position);
 }
+// A stop owns the transition to the next stop on its right.
+export const stopInterpolation=(stop,blend='linear')=>stop.interpolation&&stop.interpolation!=='inherit'?stop.interpolation:blend;
 export function rampColor(stops,position,blend='linear'){
   let left=stops[0];if(position<left.position)return rgb(left.color);
-  for(let i=1;i<stops.length;i++){const right=stops[i];if(position<right.position){if(blend==='constant')return rgb(left.color);const a=rgb(left.color),b=rgb(right.color),t=(position-left.position)/Math.max(1e-12,right.position-left.position);return a.map((v,k)=>Math.round(v+(b[k]-v)*t));}left=right;}return rgb(left.color);
+  for(let i=1;i<stops.length;i++){const right=stops[i];if(position<right.position){if(stopInterpolation(left,blend)==='constant')return rgb(left.color);const a=rgb(left.color),b=rgb(right.color),t=(position-left.position)/Math.max(1e-12,right.position-left.position);return a.map((v,k)=>Math.round(v+(b[k]-v)*t));}left=right;}return rgb(left.color);
 }
 export function rampTable(stops,blend){const table=new Uint8Array(256*3);for(let i=0;i<256;i++)table.set(rampColor(stops,i/255,blend),i*3);return table;}
 export const hex=channels=>'#'+channels.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');

@@ -1,4 +1,4 @@
-import {toonDefaults,validateRamp} from './toon.js';
+import {toonDefaults,validateRamp} from './toon.js?v=stop-blending-1';
 
 export const RAMP_PRESET_STORAGE_KEY='etch.color-ramp-presets.v1';
 const palette=(id,name,colors,positions,blend='linear')=>({id,name,settings:{toonBlend:blend,toonRamp:colors.map((color,i)=>({id:`${id}-${i}`,position:positions[i],color}))}});
@@ -19,7 +19,7 @@ export function rampSettings(value){
   return {toonBlend:value.toonBlend,toonRamp:validateRamp(value.toonRamp)};
 }
 export function rampSettingsMatch(a,b){
-  return a.toonBlend===b.toonBlend&&a.toonRamp.length===b.toonRamp.length&&a.toonRamp.every((stop,i)=>stop.position===b.toonRamp[i].position&&stop.color.toLowerCase()===b.toonRamp[i].color.toLowerCase());
+  return a.toonBlend===b.toonBlend&&a.toonRamp.length===b.toonRamp.length&&a.toonRamp.every((stop,i)=>stop.position===b.toonRamp[i].position&&stop.color.toLowerCase()===b.toonRamp[i].color.toLowerCase()&&(stop.interpolation??'inherit')===(b.toonRamp[i].interpolation??'inherit'));
 }
 export function readSavedRampPresets(storage){
   const raw=storage.getItem(RAMP_PRESET_STORAGE_KEY);if(!raw)return [];
