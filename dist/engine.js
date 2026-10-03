@@ -14,7 +14,7 @@ import { configureOrbit, FlyNavigation } from './navigation.js';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
-import { renderOutput } from './output-renderer.js?v=stop-blending-1';
+import { renderOutput } from './output-renderer.js?v=transparent-png-1';
 import { copyOutputCamera } from './output-frame.js?v=crease-flow-1';
 export { defaults } from './settings.js?v=stop-blending-1';
 
@@ -131,7 +131,7 @@ export class EtchEngine extends EventTarget {
     this.pendingGeometry = new Map();
     this.curvature.onmessage = ({ data }) => { const callback = this.pendingGeometry.get(data.id); if (!callback) return; this.pendingGeometry.delete(data.id); data.error ? callback.reject(new Error(data.error)) : callback.resolve(data); };
     this.curvature.onerror = e => { for (const pending of this.pendingGeometry.values()) pending.reject(new Error(e.message)); this.pendingGeometry.clear(); };
-    this.hatcher = new Worker(new URL('./hatch-worker.js?v=stop-blending-1', import.meta.url), { type: 'module' });
+    this.hatcher = new Worker(new URL('./hatch-worker.js?v=transparent-png-1', import.meta.url), { type: 'module' });
     this.hatcher.onmessage = ({ data }) => {
       this.busy = false;
       if (data.error) { this.emit('error', data.error); return; }

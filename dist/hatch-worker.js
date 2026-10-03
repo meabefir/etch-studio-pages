@@ -26,11 +26,12 @@ self.onmessage = ({ data }) => {
     const creases=flowBarriers(mask,i=>packed?data.barrier&&(data.barrier[i>>3]&(1<<(i&7))):flags(i)&1,w,h,scale,style,data.hasFlowBarriers||!!data.barrier);
     const objectIds=[...new Set(mask)].filter(Boolean),hasToon=objectIds.some(object=>['toon','combined'].includes(style(object).shadeMode));
     const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
-    ctx.fillStyle = p.paper; ctx.fillRect(0, 0, w, h);
-    if(hasToon){
+    const transparent=data.transparentBackground===true;
+    if(!transparent){ctx.fillStyle=p.paper;ctx.fillRect(0,0,w,h);}
+    if(hasToon||transparent){
       const tables=new Map(objectIds.map(object=>{const local=style(object);return [object,['toon','combined'].includes(local.shadeMode)?rampTable(local.toonRamp,local.toonBlend):null];})),papers=new Map(objectIds.map(object=>[object,rgb(style(object).paper)])),paper=rgb(p.paper),row=ctx.createImageData(w,1);
       // Paint rows directly, keeping 10K exports from allocating another full image.
-      for(let y=0;y<h;y++){for(let x=0;x<w;x++){const i=y*w+x,object=mask[i],table=tables.get(object),tone=packed?field[i*3+2]:field[((h-1-y)*w+x)*4+2],color=object?papers.get(object):paper,j=x*4;for(let k=0;k<3;k++)row.data[j+k]=table?table[tone*3+k]:color[k];row.data[j+3]=255;}ctx.putImageData(row,0,y);}
+      for(let y=0;y<h;y++){for(let x=0;x<w;x++){const i=y*w+x,object=mask[i],j=x*4;if(transparent&&!object){row.data.fill(0,j,j+4);continue;}const table=tables.get(object),tone=packed?field[i*3+2]:field[((h-1-y)*w+x)*4+2],color=object?papers.get(object):paper;for(let k=0;k<3;k++)row.data[j+k]=table?table[tone*3+k]:color[k];row.data[j+3]=255;}ctx.putImageData(row,0,y);}
     }
     // Screen-space cavity contrast is restrained; it affects density, never width.
     const radius = Math.max(2, Math.round(6 * scale));

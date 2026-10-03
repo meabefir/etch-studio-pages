@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {validateOutput,outputDimensions} from './output-settings.js';
+import {validateOutput,outputDimensions} from './output-settings.js?v=transparent-png-1';
 import {framedCamera,sourceFrame,warpFramedBuffers} from './output-frame.js?v=crease-flow-1';
 import {isLens} from './lenses.js?v=crease-flow-1';
 import {outputTiles,tileCamera,packedBuffers,packTile,warpPackedBuffers} from './output-tiles.js?v=crease-flow-1';
@@ -47,16 +47,16 @@ export async function renderOutput(engine,capture,value,{preview=false,signal,on
   if(signal?.aborted)throw aborted();
   if(capture.mode==='solid'){
     if(buffers){const image=new ImageData(w,h);for(let y=0;y<h;y++)image.data.set(buffers.normal.subarray((h-1-y)*w*4,(h-y)*w*4),y*w*4);context.putImageData(image,0,0);}
-    context.globalCompositeOperation='destination-over';context.fillStyle=engine.params.paper;context.fillRect(0,0,w,h);return {canvas,lines:0,ms:0};
+    if(!settings.transparentBackground){context.globalCompositeOperation='destination-over';context.fillStyle=engine.params.paper;context.fillRect(0,0,w,h);}return {canvas,lines:0,ms:0};
   }
   const scale=settings.strokes==='pixels'?1:h/capture.referenceHeight*settings.zoom;
-  const worker=new Worker(new URL('./hatch-worker.js?v=stop-blending-1',import.meta.url),{type:'module'});
+  const worker=new Worker(new URL('./hatch-worker.js?v=transparent-png-1',import.meta.url),{type:'module'});
   onProgress?.(`Tracing ${w} × ${h} px…`);
   return new Promise((resolve,reject)=>{
     const cleanup=()=>{worker.terminate();signal?.removeEventListener('abort',cancel);},cancel=()=>{cleanup();reject(aborted());};signal?.addEventListener('abort',cancel,{once:true});
     worker.onerror=e=>{cleanup();reject(new Error(e.message||'Image rendering failed.'));};
     worker.onmessage=({data})=>{cleanup();if(data.error)return reject(new Error(data.error));context.drawImage(data.bitmap,0,0);data.bitmap.close();resolve({canvas,lines:data.lines,hardEdges:data.hardEdges,ms:data.ms});};
-    worker.postMessage({id:0,width:w,height:h,scale,...buffers,hasFlowBarriers,surfaceCross,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer,...(buffers.hard?[buffers.hard.buffer]:[]),...(buffers.barrier?[buffers.barrier.buffer]:[]),...(buffers.crossField?[buffers.crossField.buffer]:[])]);
+    worker.postMessage({id:0,width:w,height:h,scale,...buffers,hasFlowBarriers,surfaceCross,transparentBackground:settings.transparentBackground,far:camera.far,params:{...engine.params},objectParams:engine.models.map(entry=>({...engine.styleFor(entry)}))},[(buffers.packed?buffers.mask:buffers.normal).buffer,buffers.field.buffer,buffers.depth.buffer,...(buffers.hard?[buffers.hard.buffer]:[]),...(buffers.barrier?[buffers.barrier.buffer]:[]),...(buffers.crossField?[buffers.crossField.buffer]:[])]);
   });
 }
 

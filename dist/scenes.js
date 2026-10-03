@@ -2,7 +2,7 @@ import { validateSettings,hatchingSettings } from './settings.js?v=stop-blending
 import {toonKeys,validateToonSettings} from './toon.js?v=stop-blending-1';
 import { projections } from './lenses.js';
 import { validateSigil } from './sigil-data.js?v=sigil-rotation-1';
-import { validateOutput } from './output-settings.js';
+import { validateOutput } from './output-settings.js?v=transparent-png-1';
 export const SCENE_STORAGE_KEY = 'etch.scenes.v1';
 const vector = (v, positive = false) => Array.isArray(v) && v.length === 3 && v.every(n => Number.isFinite(n) && Math.abs(n) < 1e9 && (!positive || n > 0));
 const name = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
