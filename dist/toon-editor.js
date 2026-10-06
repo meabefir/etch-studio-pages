@@ -1,5 +1,6 @@
 import {toonDefaults,validateRamp,rampColor,stopInterpolation,hex} from './toon.js?v=stop-blending-1';
 import {builtinRampPresets,rampSettings,rampSettingsMatch,readSavedRampPresets,saveNamedRampPreset} from './toon-presets.js?v=stop-blending-1';
+import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=share-files-1';
 
 export class ToonEditor{
   constructor(panel,{getStyle,onChange,onScope,resetButton,getOverride=()=>null,onCustom=()=>{},onMessage=()=>{},getStorage=()=>localStorage}){
@@ -33,6 +34,9 @@ export class ToonEditor{
     const select=this.q('#toon-ramp-preset');select.before(resetButton('Color ramp preset','Studio',()=>this.loadRampPreset('studio')));
     select.onchange=()=>this.loadRampPreset(select.value);
     this.q('[data-ramp-preset="load"]').onclick=()=>this.loadRampPreset(select.value);
+    attachFileControls(block,{type:'color-ramp',getName:()=>[...builtinRampPresets,...this.savedRamps].find(p=>p.id===this.selectedRampPreset)?.name||'Color ramp',getData:this.getStyle,onMessage,onImport:doc=>{
+      const result=importSharedPreset(getStorage(),doc,this.savedRamps);this.savedRamps=result.presets;this.selectedRampPreset=result.preset.id;this.populateRampPresets();this.loadRampPreset(result.preset.id);onMessage(presetImportMessage(result,'color ramp'));
+    }});
     const dialog=document.createElement('dialog');dialog.id='save-ramp-dialog';dialog.className='form-dialog';dialog.setAttribute('aria-labelledby','save-ramp-title');
     dialog.innerHTML=`<form><h2 id="save-ramp-title">Save color ramp preset</h2><label for="ramp-preset-name">Preset name</label><input id="ramp-preset-name" type="text" maxlength="60" required autocomplete="off" placeholder="e.g. Moss and copper"><p class="hint">Saves colors, stop positions, ramp blending and each stop’s interpolation in this browser. Saving with an existing name updates that ramp.</p><p class="inline-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="button subtle" data-ramp-preset="cancel">Cancel</button><button type="submit" class="button accent">Save</button></div></form>`;
     document.body.append(dialog);this.rampDialog=dialog;

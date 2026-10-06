@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { sigilDefaults, sigilControls, sigilPresets, sigilSharedKeys, motifSettings, curveSettings, validateSigil, makeCurve, makeNode, nodeMap, pointOf, radiusOf, resolveNode } from './sigil-data.js?v=sigil-rotation-1';
 import { SIGIL_PRESET_STORAGE_KEY, readSavedMotifs, saveNamedMotif, motifMatch } from './sigil-presets.js';
+import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=share-files-1';
 import { vertexRingLayout, VertexRadiusDrag } from './sigil-radius.js';
 import { sampleCurve } from './sigil-geometry.js?v=sigil-performance-1';
 import { sigilMeshKey, cachedSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
@@ -167,6 +168,9 @@ export class SigilEditor {
     const hint=document.createElement('p');hint.className='hint';hint.textContent=this.settingsScope==='global'?'Changes apply to curves using the global motif. Custom curves keep their own settings.':this.currentCurve().settings?'Editing this curve’s custom motif. Resolution and finish remain shared.':'This curve uses the global motif. Enable custom settings or choose a preset to give it its own style.';preset.append(hint);
     const select=this.choice(preset,'Motif preset',[],this.styleId(),id=>this.applyMotif(id),'thorn');for(const [label,entries]of [['Built-in motifs',sigilPresets],['Saved motifs',this.savedMotifs]])if(entries.length){const group=document.createElement('optgroup');group.label=label;for(const item of entries)group.append(new Option(item.name,item.id));select.append(group);}select.append(new Option('Custom settings','custom'));
     const actions=document.createElement('div');actions.className='row';const load=button('Load motif',()=>this.applyMotif(select.value));load.dataset.action='load-motif';actions.append(load,button('Save motif',()=>this.openSaveMotif()));preset.append(actions);const status=document.createElement('p');status.className='hint sigil-motif-status';preset.append(status);
+    attachFileControls(preset,{type:'sigil-motif',getName:()=>this.motifPresets().find(p=>p.id===this.selectedMotifs.get(this.motifScopeKey()))?.name||'Custom motif',getData:()=>this.motifTarget(),getDisabled:()=>this.applying,onMessage:(message,error)=>this.status(message,error),onImport:doc=>{
+      if(this.closed)return;const result=importSharedPreset(localStorage,doc,this.savedMotifs);this.savedMotifs=result.presets;this.motifStorageError=result.storageError?.message||null;this.applyMotif(result.preset.id);this.status(presetImportMessage(result,'sigil motif'));
+    }});
     if(this.motifStorageError){const error=document.createElement('p');error.className='inline-error hint';error.textContent=this.motifStorageError;preset.append(error);}
     const switches=this.q('.sigil-switches');switches.replaceChildren();this.check(switches,'Live mesh generation','live','Live');this.check(switches,'Show editing curves','showCurves','Curves');this.check(switches,'Show axis gizmos','showAxes','Axes');this.check(switches,'Lock view rotation','lockRotation','Lock');
     const parent=this.q('.sigil-parameters'),finish=this.q('.sigil-finish');parent.replaceChildren();finish.replaceChildren();const groups=new Map(),inherited=this.settingsScope==='curve'&&!this.currentCurve().settings;

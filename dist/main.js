@@ -1,6 +1,7 @@
 import { registerBrowserTools } from './browser-tools.js';
+import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=share-files-1';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
-import { ToonEditor } from './toon-editor.js?v=stop-blending-1';
+import { ToonEditor } from './toon-editor.js?v=share-files-1';
 import { EtchEngine } from './engine.js?v=obj-faces-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
@@ -15,8 +16,8 @@ function tab(which) { for(const name of ['hatch','selection','depth','toon']){co
 const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, toonTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
-let sigilEditor,toonEditor;
-async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=sigil-performance-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
+let sigilEditor,toonEditor,sceneFileControls,currentSceneName='Etch scene';
+async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=share-files-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
   try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }
@@ -175,6 +176,7 @@ function populateScenes() {
   if (!savedScenes.some(s => s.id === selectedSceneId)) selectedSceneId = savedScenes[0]?.id || '';
   $('saved-scene').replaceChildren(...(savedScenes.length ? savedScenes.map(s => new Option(s.name, s.id)) : [new Option('No saved scenes yet', '')])); $('saved-scene').value = selectedSceneId;
   $('load-scene').disabled = sceneBusy || !selectedSceneId; $('save-scene').disabled = sceneBusy;
+  sceneFileControls?.refresh();
 }
 function requestModelPath({ title, description, path = '', error = '', browse = 'relink', infoOnly = false }) {
   return new Promise(resolve => {
@@ -196,7 +198,7 @@ function requestModelPath({ title, description, path = '', error = '', browse = 
     dialog.showModal(); $('model-path-input').focus();
   });
 }
-async function restoreScene(state) {
+async function restoreScene(state,{recordId=selectedSceneId}={}) {
   const staged = []; sceneBusy = true; importBusy = true; populateScenes(); $('loading').hidden = false;
   try {
     for (const saved of state.models) {
@@ -223,7 +225,7 @@ async function restoreScene(state) {
     engine.serial = Math.max(engine.serial, ...[...engine.models, ...engine.lights, ...engine.cameras].map(e => Number(e.id.split('-').pop()) || 0));
     engine.grid.visible = $('grid').checked = state.grid;engine.setLightIconsVisible(state.lightIcons); viewMode(state.mode); setHatchScope(null); sceneList(); selectionPanel(); engine.invalidate(); engine.draw(); engine.schedule();
     // Retain repaired references in the named save without storing model geometry.
-    const record = savedScenes.find(s => s.id === selectedSceneId);
+    const record = savedScenes.find(s => s.id === recordId);
     if (record) try { const result = saveNamedScene(localStorage, record.name, snapshotScene(engine)); savedScenes = result.scenes; populateScenes(); } catch { toast('Scene loaded, but its repaired paths could not be saved.'); }
     return true;
   } finally {
@@ -232,6 +234,15 @@ async function restoreScene(state) {
   }
 }
 function setupSceneStorage() {
+  sceneFileControls=attachFileControls(document.querySelector('.scene-storage'),{type:'scene',getName:()=>currentSceneName,getData:()=>snapshotScene(engine),getDisabled:()=>sceneBusy||importBusy,onMessage:toast,onImport:async doc=>{
+    if(sceneBusy||importBusy)throw new Error('Wait for the current import to finish.');
+    if(!await restoreScene(doc.data,{recordId:null}))return;
+    let name=importedName(doc.name,savedScenes,100),storageError;
+    try{name=importedName(doc.name,[...savedScenes,...readSavedScenes(localStorage)],100);const result=saveNamedScene(localStorage,name,snapshotScene(engine));savedScenes=result.scenes;selectedSceneId=result.record.id;}
+    catch(error){storageError=error;const record={id:`saved-scene-${crypto.randomUUID()}`,name,scene:snapshotScene(engine)};savedScenes.push(record);selectedSceneId=record.id;}
+    currentSceneName=name;
+    populateScenes();toast(`Loaded scene “${name}” from file.${storageError?' Browser storage is unavailable; download a copy to keep it.':''}`);
+  }});
   $('saved-scene').onchange = () => { selectedSceneId = $('saved-scene').value; };
   $('save-scene').onclick = () => { $('scene-name').value = savedScenes.find(s => s.id === selectedSceneId)?.name || ''; $('save-scene-dialog').showModal(); $('scene-name').focus(); };
   $('cancel-save-scene').onclick = () => $('save-scene-dialog').close();
@@ -242,11 +253,11 @@ function setupSceneStorage() {
         let error = ''; if (entry.source.path) try { await localModel(entry.source.path, true); continue; } catch (e) { error = e.message; }
         const result = await requestModelPath({ title: `File path for ${entry.name}`, description: 'The browser does not reveal the full path of a browsed file. Enter it once so saved scenes can reopen this model automatically.', path: entry.source.path, error, infoOnly: true }); if (!result) return; entry.source = {...entry.source,...result.source};
       }
-      const result = saveNamedScene(localStorage, name, snapshotScene(engine)); savedScenes = result.scenes; selectedSceneId = result.record.id; toast(`${result.replaced ? 'Updated' : 'Saved'} scene “${result.record.name}”.`);
+      const result = saveNamedScene(localStorage, name, snapshotScene(engine)); savedScenes = result.scenes; selectedSceneId = result.record.id; currentSceneName=result.record.name;toast(`${result.replaced ? 'Updated' : 'Saved'} scene “${result.record.name}”.`);
     } catch (e) { toast(e.name === 'QuotaExceededError' ? 'Browser storage is full. The scene was not saved.' : e.message); }
     finally { sceneBusy = false; populateScenes(); selectionPanel(); }
   };
-  $('load-scene').onclick = async () => { if (sceneBusy || importBusy) return toast('Wait for the current import to finish.'); const record = savedScenes.find(s => s.id === $('saved-scene').value); if (!record) return; try { if (await restoreScene(record.scene)) toast(`Loaded scene “${record.name}”.`); } catch (e) { toast(`Scene could not be loaded: ${e.message}`); } };
+  $('load-scene').onclick = async () => { if (sceneBusy || importBusy) return toast('Wait for the current import to finish.'); const record = savedScenes.find(s => s.id === $('saved-scene').value); if (!record) return; try { if (await restoreScene(record.scene)){currentSceneName=record.name;toast(`Loaded scene “${record.name}”.`);} } catch (e) { toast(`Scene could not be loaded: ${e.message}`); } };
 }
 function selectionPanel() {
   const panel = $('selection-settings'); panel.replaceChildren(); transformInputs.length = 0; cameraControls.clear();
@@ -365,6 +376,9 @@ async function init() {
   $('reset-settings').onclick = () => loadPreset('engraving');
   $('preset').onchange = () => loadPreset($('preset').value);
   $('load-preset').onclick = () => loadPreset($('preset').value);
+  attachFileControls(document.querySelector('.preset-block'),{type:'hatching',getName:()=>currentPreset()?.name||'Hatching preset',getData:hatchParams,onMessage:toast,onImport:doc=>{
+    const result=importSharedPreset(localStorage,doc,savedPresets);savedPresets=result.presets;selectedPresetId=result.preset.id;populatePresets();loadPreset(result.preset.id);toast(presetImportMessage(result,'hatching preset'));
+  }});
   attachReset($('preset'), 'Preset', 'Engraving', () => loadPreset('engraving'));
   $('save-preset').onclick = () => { $('preset-name').value = selectedPresetId.startsWith('saved-') ? currentPreset()?.name || '' : ''; $('save-preset-dialog').showModal(); $('preset-name').focus(); };
   $('cancel-save-preset').onclick = () => $('save-preset-dialog').close();
