@@ -56,8 +56,8 @@ export class SigilEditor {
     this.proxy=new THREE.Object3D();this.overlay.add(this.proxy);this.curveOverlay=new SigilCurveOverlay();this.visuals=this.curveOverlay.group;this.overlay.add(this.visuals);
     this.transform=new TransformControls(this.camera,this.renderer.domElement);this.transform.setSize(.7);this.overlay.add(this.transform.getHelper());this.transform.addEventListener('change',()=>this.draw());
     this.navigation=new FlyNavigation(this.renderer.domElement,{camera:()=>this.camera,orbit:()=>this.orbit,canStart:()=>!this.design.settings.lockRotation&&!this.applying&&!this.transform.dragging&&!this.pointDrag,onStart:()=>{this.renderer.domElement.style.cursor='';this.transform.enabled=false;},onChange:()=>this.draw(),onEnd:()=>{if(!this.applying)this.transform.enabled=true;}});
-    this.transform.addEventListener('dragging-changed',e=>{this.orbit.enabled=!e.value;if(!e.value){this.record();this.scheduleMesh();}});
-    this.transform.addEventListener('objectChange',()=>{const node=this.currentNode();if(!node)return;const map=nodeMap(this.design),position=this.proxy.position.toArray();if(this.selected.part==='p')resolveNode(node,map).p=position;else this.setHandle(node,this.selected.part,minus(position,pointOf(node,map)));this.changed(false);this.syncCoordinates();});
+    this.transform.addEventListener('dragging-changed',e=>{this.orbit.enabled=!e.value;this.axisHandleDrag=e.value?{}:null;if(!e.value){this.record();this.scheduleMesh();}});
+    this.transform.addEventListener('objectChange',()=>{const node=this.currentNode();if(!node)return;const map=nodeMap(this.design),position=this.proxy.position.toArray();if(this.selected.part==='p')resolveNode(node,map).p=position;else this.dragHandle(node,this.selected.part,minus(position,pointOf(node,map)),this.axisHandleDrag||{},this.handleShiftPressed);this.changed(false);this.syncCoordinates();});
     this.bindPointDragging();
     this.createRadiusRing();
     this.dialog.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>this.applyEditorView(button.dataset.view));
@@ -71,7 +71,7 @@ export class SigilEditor {
   }
   updateRotationLock(){
     const locked=this.design.settings.lockRotation;this.orbit.enableRotate=!locked;if(locked)this.navigation?.stop();
-    this.q('.sigil-view-hint').textContent='Grab a vertex or handle and drag across the current view. Drag the active vertex circle outward/inward to adjust radius. '+(locked?'View rotation locked · Shift + middle-drag to pan · Scroll to zoom.':'Middle-drag to orbit · Shift + middle-drag to pan · Scroll to zoom · Hold right mouse to fly (WASD, Q/E, Shift).');
+    this.q('.sigil-view-hint').textContent='Grab a vertex or handle and drag across the current view. Shift-drag a handle to resize its sibling proportionally. Drag the active vertex circle outward/inward to adjust radius. '+(locked?'View rotation locked · Shift + middle-drag to pan · Scroll to zoom.':'Middle-drag to orbit · Shift + middle-drag to pan · Scroll to zoom · Hold right mouse to fly (WASD, Q/E, Shift).');
   }
   pointerFor(e){const r=this.renderer.domElement.getBoundingClientRect();return new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);}
   pickPoint(e){
@@ -82,25 +82,28 @@ export class SigilEditor {
   }
   bindPointDragging(){
     const canvas=this.renderer.domElement;this.dragAbort=new AbortController();const options={capture:true,signal:this.dragAbort.signal};
+    for(const event of ['keydown','keyup'])window.addEventListener(event,e=>{this.handleShiftPressed=e.shiftKey;},{signal:this.dragAbort.signal});
     canvas.addEventListener('pointerdown',e=>{
+      this.handleShiftPressed=e.shiftKey;
       if(e.button!==0||this.applying||this.navigation.active||this.transform.dragging||(this.design.settings.showAxes&&this.transform.axis))return;
       const marker=this.pickPoint(e);if(!marker)return;e.preventDefault();e.stopImmediatePropagation();
       this.selected={...marker.userData.pick};const position=marker.position.clone();this.rebuildLists();this.rebuildOverlay();
       this.pointDrag={id:e.pointerId,plane:new ViewPlaneDrag(this.camera,position,this.pointerFor(e)),orbitEnabled:this.orbit.enabled};this.orbit.enabled=false;this.transform.enabled=false;canvas.style.cursor='grabbing';canvas.setPointerCapture(e.pointerId);
     },options);
     canvas.addEventListener('pointermove',e=>{
+      this.handleShiftPressed=e.shiftKey;
       if(!this.pointDrag){if(!this.navigation.active&&!this.transform.dragging)canvas.style.cursor=this.pickPoint(e)?'grab':'';return;}
       e.preventDefault();e.stopImmediatePropagation();if(!(e.buttons&1))return this.endPointDrag();
       const node=this.currentNode();if(!node)return;
       if(this.pointDrag.kind==='radius'){const value=this.pointDrag.radius.value([e.clientX,e.clientY]);if(Math.abs(value-radiusOf(node,nodeMap(this.design)))>1e-7)this.setVertexRadius(value,false);return;}
       const position=this.pointDrag.plane.position(this.camera,this.pointerFor(e));if(!position)return;
       const map=nodeMap(this.design),limit=values=>values.map(v=>Math.max(-50,Math.min(50,v)));
-      if(this.selected.part==='p')resolveNode(node,map).p=limit(position.toArray());else this.setHandle(node,this.selected.part,limit(minus(position.toArray(),pointOf(node,map))));
+      if(this.selected.part==='p')resolveNode(node,map).p=limit(position.toArray());else this.dragHandle(node,this.selected.part,limit(minus(position.toArray(),pointOf(node,map))),this.pointDrag,e.shiftKey);
       this.changed(false);this.syncCoordinates();
     },options);
     canvas.addEventListener('pointerup',e=>{if(this.pointDrag&&e.pointerId===this.pointDrag.id){e.preventDefault();e.stopImmediatePropagation();this.endPointDrag();}},options);
     for(const event of ['pointercancel','lostpointercapture'])canvas.addEventListener(event,()=>this.endPointDrag(),options);
-    window.addEventListener('blur',()=>this.endPointDrag(),{signal:this.dragAbort.signal});
+    window.addEventListener('blur',()=>{this.handleShiftPressed=false;this.endPointDrag();},{signal:this.dragAbort.signal});
   }
   endPointDrag(record=true){if(!this.pointDrag)return;const drag=this.pointDrag;this.pointDrag=null;this.orbit.enabled=drag.orbitEnabled;this.transform.enabled=!this.applying;this.renderer.domElement.style.cursor='';if(this.renderer.domElement.hasPointerCapture(drag.id))this.renderer.domElement.releasePointerCapture(drag.id);if(record){this.record();this.scheduleMesh();}}
   draw(){if(this.closed)return;this.camera.updateMatrixWorld(true);this.curveOverlay?.update(this.camera,this.renderer.domElement.clientHeight);this.updateRadiusRing();this.renderer.autoClear=true;this.renderer.render(this.scene,this.camera);this.renderer.autoClear=false;this.renderer.clearDepth();this.renderer.render(this.overlay,this.camera);this.renderer.autoClear=true;}
@@ -209,7 +212,20 @@ export class SigilEditor {
     const hint=document.createElement('p');hint.className='hint';hint.textContent=node.link?'This endpoint follows its pole. Moving the vertex moves the shared pole. Changing radius gives this endpoint its own thickness.':'Add vertex splits the outgoing segment. At the last vertex it extends the curve. Add curve branches from this vertex.';panel.append(hint);
   }
   syncCoordinates(){const node=this.currentNode();if(!node)return;const part=this.selected.part,values=part==='p'?pointOf(node,nodeMap(this.design)):node[part];for(const [i,axis]of ['X','Y','Z'].entries()){const input=this.q(`[aria-label="${part==='p'?'Vertex':part==='in'?'Incoming handle':'Outgoing handle'} ${axis}"]`);if(input&&input!==document.activeElement)input.value=Number(values[i].toFixed(3));}}
-  setHandle(node,part,value){node[part]=[...value];if(node.mode==='free')return;const opposite=part==='in'?'out':'in',length=Math.hypot(...value),previous=Math.hypot(...node[opposite]);node[opposite]=value.map(v=>-v*(node.mode==='mirrored'?1:previous/(length||1)));}
+  dragHandle(node,part,value,drag,shiftKey){
+    const opposite=part==='in'?'out':'in';
+    // Keep a stable baseline while Shift is held, including when a handle passes through zero.
+    if(shiftKey)drag.handleScale??={length:Math.hypot(...node[part]),opposite:[...node[opposite]]};else drag.handleScale=null;
+    this.setHandle(node,part,value,drag.handleScale);
+  }
+  setHandle(node,part,value,scale=null){
+    const opposite=part==='in'?'out':'in',length=Math.hypot(...value),previous=Math.hypot(...node[opposite]);node[part]=[...value];
+    const siblingLength=scale?(scale.length>1e-8?Math.hypot(...scale.opposite)*length/scale.length:length):previous;
+    if(node.mode==='free'){
+      if(scale){const before=Math.hypot(...scale.opposite);node[opposite]=before>1e-8?scale.opposite.map(v=>v*siblingLength/before):scale.length>1e-8?[0,0,0]:value.map(v=>-v);}
+    }else node[opposite]=value.map(v=>-v*(node.mode==='mirrored'?1:siblingLength/(length||1)));
+    if(scale){const extent=Math.max(...node.in.map(Math.abs),...node.out.map(Math.abs));if(extent>50)for(const key of ['in','out'])node[key]=node[key].map(v=>v*50/extent);}
+  }
   styleId(){return this.motifPresets().find(p=>motifMatch(p.settings,this.motifTarget()))?.id||'custom';}
   changed(record=true){
     const key=sigilMeshKey(this.design),geometryChanged=key!==this.geometryKey;
