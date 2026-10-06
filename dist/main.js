@@ -1,7 +1,7 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
 import { ToonEditor } from './toon-editor.js?v=stop-blending-1';
-import { EtchEngine } from './engine.js?v=cross-angle-1';
+import { EtchEngine } from './engine.js?v=obj-faces-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
 import { starterSigil } from './sigil-data.js?v=sigil-rotation-1';

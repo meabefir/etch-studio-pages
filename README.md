@@ -23,6 +23,7 @@ GitHub Pages publishes `main` from the repository root. The root `index.html` op
 ## Workflow
 
 - **Import model** accepts a full local **OBJ** or **GLB** path, or lets you browse for a file. You can also drag files onto the drawing. Paths may include spaces; quotes copied from Windows Explorer are removed automatically.
+- OBJ polygon objects and groups become separate scene objects with their relative positions preserved. Loose edge and point records are ignored, including when they occur inside an object containing faces; they no longer cause its polygon mesh to disappear.
 - Click a model or its scene entry to select it. Use the gizmo to move, rotate, or scale it; edit exact values in **Selection**.
 - Press **W**, **E**, or **R** for move, rotate, or scale. Choose local or world axes in the toolbar.
 - Hold and drag the middle mouse button to orbit, hold **Shift + middle mouse** and drag to pan, and scroll to zoom. Left-drag is reserved for object and curve editing. Hold the **right mouse button** to enter free flight: move the mouse to look, **WASD** to move, **Q/E** down/up, and **Shift** to move faster. Scrolling while flying adjusts movement speed. Release right mouse or press **Escape** to return to orbit; losing focus also exits. These controls work in the main view and the sigil editor. Flight updates only the active scene camera. **F** frames the selected model, or the full scene if nothing is selected. **Escape** clears selection.

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { parseMeshOBJ } from './obj-import.js?v=obj-faces-1';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -347,7 +347,7 @@ export class EtchEngine extends EventTarget {
   }
   async load(file, { register = true, source = null } = {}) {
     const ext = file.name.split('.').pop().toLowerCase(); let root;
-    if (ext === 'obj') root = new OBJLoader().parse(await file.text());
+    if (ext === 'obj') root = parseMeshOBJ(await file.text());
     else if (ext === 'glb') {
       const loader = new GLTFLoader(), draco = new DRACOLoader(); draco.setDecoderPath('./vendor/addons/libs/draco/gltf/'); loader.setDRACOLoader(draco); loader.setMeshoptDecoder(MeshoptDecoder);
       // Geometry-only import: skip texture decoding and material extension setup.
