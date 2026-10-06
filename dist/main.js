@@ -1,12 +1,12 @@
 import { registerBrowserTools } from './browser-tools.js';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
 import { ToonEditor } from './toon-editor.js?v=stop-blending-1';
-import { EtchEngine } from './engine.js?v=middle-orbit-1';
-import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=stop-blending-1';
+import { EtchEngine } from './engine.js?v=cross-angle-1';
+import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
 import { starterSigil } from './sigil-data.js?v=sigil-rotation-1';
 import { cameraDefaults, projections } from './lenses.js';
-import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=transparent-png-1';
+import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=cross-angle-1';
 
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
@@ -16,7 +16,7 @@ const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, toonTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
 let sigilEditor,toonEditor;
-async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=global-motif-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
+async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=sigil-performance-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
   try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }
@@ -292,7 +292,7 @@ function refreshSettings() {
   $('hard-contour').checked=params.hardContour;$('hard-line-color').value=params.hardColor;
   for(const key of hardKeys){const control=controls.get(key);if(control)control.input.disabled=!params.hardContour;}$('hard-line-color').disabled=!params.hardContour;
   $('cross').checked = params.cross; $('outline').checked = params.outline; $('quality').value = engine.params.quality;
-  controls.get('crossThreshold').input.disabled = !params.cross; controls.get('outlineWidth').input.disabled = !params.outline;
+  for(const key of ['crossThreshold','crossAngle'])controls.get(key).input.disabled = !params.cross; controls.get('outlineWidth').input.disabled = !params.outline;
   updatePresetStatus();
 }
 async function loadFiles(files, source = null) {
@@ -313,6 +313,7 @@ async function init() {
   try { savedPresets = readSavedPresets(localStorage); } catch (e) { toast(e.message || 'Browser storage is unavailable.'); }
   populatePresets();
   for (const [parent, key, name, min, max, step, suffix] of definitions) controls.set(key, range($(parent), key, name, min, max, step, suffix, engine.params[key], value => applyHatchPatch({ [key]: value }), defaults[key]));
+  controls.get('crossAngle').input.title='Angle from the main hatch direction on the model surface. 90° is perpendicular; 0° and 180° follow the same direction.';
   engine.addEventListener('scene', sceneList);
   engine.addEventListener('selection', () => { sceneList(); selectionPanel(); refreshSettings(); });
   engine.addEventListener('transform', syncTransform);

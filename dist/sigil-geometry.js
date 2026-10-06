@@ -1,12 +1,13 @@
 import { validateSigil, nodeMap, pointOf, radiusOf, resolveNode, curveSettings, motifSettings } from './sigil-data.js';
 import { adaptiveCurveParameters, adaptiveGrowthSamples, planSigilResolution } from './sigil-resolution.js';
-import { buildSparseSurface } from './sigil-volume.js';
-import { smoothSigilMesh } from './sigil-smoothing.js';
+import { buildSparseSurface } from './sigil-volume.js?v=sigil-performance-1';
+import { smoothSigilMesh } from './sigil-smoothing.js?v=sigil-performance-1';
+import { sigilMeshKey, sigilMeshBytes, SIGIL_CACHE_BYTES } from './sigil-generation.js?v=sigil-performance-1';
 const add=(a,b)=>a.map((v,i)=>v+b[i]),sub=(a,b)=>a.map((v,i)=>v-b[i]),mul=(a,s)=>a.map(v=>v*s),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],length=a=>Math.hypot(...a),unit=a=>mul(a,1/(length(a)||1)),lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=(seed,i)=>{const n=Math.sin(seed*127.1+i*311.7)*43758.5453;return n-Math.floor(n);};
 function bezier(a,b,c,d,t){const u=1-t;return a.map((v,i)=>v*u*u*u+3*b[i]*u*u*t+3*c[i]*u*t*t+d[i]*t*t*t);}
-export function sampleCurve(curve,design,step=null) {
-  const map=nodeMap(design),s=curveSettings(design,curve),points=[];
+export function sampleCurve(curve,design,step=null,map=nodeMap(design)) {
+  const s=curveSettings(design,curve),points=[];
   for(let segment=0;segment<curve.nodes.length-1;segment++) {
     const a=curve.nodes[segment],b=curve.nodes[segment+1],p=pointOf(a,map),q=pointOf(b,map);
     const parameters=step?adaptiveCurveParameters(p,add(p,a.out),add(q,b.in),q,s,step):Array.from({length:s.curveResolution+1},(_,i)=>i/s.curveResolution);
@@ -66,7 +67,7 @@ function transformGroup(group,angle,mirror=false){const c=Math.cos(angle),s=Math
 export function sigilGroups(design,step=null) {
   const map=nodeMap(design),originals=[];
   for(let i=0;i<design.curves.length;i++) {
-    const curve=design.curves[i],s=curveSettings(design,curve),points=sampleCurve(curve,design,step);if(points.at(-1).arc<.0001)continue;
+    const curve=design.curves[i],s=curveSettings(design,curve),points=sampleCurve(curve,design,step,map);if(points.at(-1).arc<.0001)continue;
     const first=points[0],last=points.at(-1),clip=s.cap==='flat'?[curve.nodes[0].link?null:{p:first.p,t:mul(first.t,-1),r:first.r},curve.nodes.at(-1).link?null:{p:last.p,t:last.t,r:last.r}]:null;
     originals.push(...[sweep(points,'stem',s.flatten,clip),...growth(points,s,i,step)].map(group=>({...group,settings:s,curveId:curve.id})));
   }
@@ -84,10 +85,18 @@ export function sigilGroups(design,step=null) {
     if(signatures.has(signature))continue;signatures.add(signature);groups.push(transformed);
   }return groups;
 }
-export function buildSigil(input,report=()=>{}) {
+export function buildSigil(input,report=()=>{},cache=null) {
   const start=performance.now(),design=validateSigil(input),s=design.settings;
+  const key=cache?sigilMeshKey(design,true):null;
+  if(cache?.key===key&&cache.mesh){
+    if(cache.mesh.resolution.cells>s.detailBudget)throw new Error('The occupied mesh regions exceed the detail budget. Increase Detail budget in Resolution & finish, or reduce mesh resolution or Maximum detail boost.');
+    const mesh=smoothSigilMesh(cache.mesh,s,report);return {...mesh,ms:Math.round(performance.now()-start),reusedSurface:true};
+  }
+  if(cache){cache.key=null;cache.mesh=null;}
   report({phase:'Sampling local curve detail',progress:0});
   let groups=sigilGroups(design),resolution=planSigilResolution(groups,s,design);
   groups=sigilGroups(design,resolution.step);resolution=planSigilResolution(groups,s,design);
-  const mesh=smoothSigilMesh(buildSparseSurface(groups,s,resolution,report),s,report);mesh.ms=Math.round(performance.now()-start);return mesh;
+  const surface=buildSparseSurface(groups,s,resolution,report);
+  if(cache&&sigilMeshBytes(surface)<=SIGIL_CACHE_BYTES){cache.key=key;cache.mesh=surface;}
+  const mesh=smoothSigilMesh(surface,s,report);mesh.ms=Math.round(performance.now()-start);return mesh;
 }

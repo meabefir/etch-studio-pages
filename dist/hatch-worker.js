@@ -77,7 +77,7 @@ self.onmessage = ({ data }) => {
         a += u*s; b += v*s; weight += s;
       }
       if (weight < 0.2 || Math.hypot(a, b) < 0.035) return null;
-      const angle = 0.5 * Math.atan2(b, a) + (surfaceCross?0:style(object).angle*Math.PI/180+(cross?Math.PI/2:0));
+      const angle = 0.5 * Math.atan2(b, a) + (surfaceCross?0:style(object).angle*Math.PI/180+(cross?(style(object).crossAngle??90)*Math.PI/180:0));
       let u = Math.cos(angle), v = Math.sin(angle);
       if (u * px + v * py < 0) { u = -u; v = -v; }
       return [u, v];

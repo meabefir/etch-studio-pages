@@ -1,5 +1,5 @@
 import {toonDefaults,toonKeys,validateRamp} from './toon.js?v=stop-blending-1';
-export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026',hardContour:false,hardAngle:45,hardWidth:1.5,hardColor:'#1b2026',...toonDefaults };
+export const defaults = { width: 0.8, spacing: 3.5, lightSpacing: 16, length: 1400, flow: 1, angle: 0, contrast: 1.25, depthSpacing: 0.35, cavity: 1, highlight: 0.08, cross: true, crossThreshold: 0.66, crossAngle: 90, ink: '#1b2026', paper: '#ffffff', outline: true, outlineWidth: 1.5, outlineColor: '#1b2026', ambient: 0.14, quality: 1100,depthOutline:false,depthThreshold:.02,depthFloor:.01,depthRadius:1,depthWidth:1.2,depthOpacity:1,depthMinLength:6,depthSmooth:1,depthSlope:1,depthAcross:true,depthColor:'#1b2026',hardContour:false,hardAngle:45,hardWidth:1.5,hardColor:'#1b2026',...toonDefaults };
 export const depthKeys=['depthOutline','depthThreshold','depthFloor','depthRadius','depthWidth','depthOpacity','depthMinLength','depthSmooth','depthSlope','depthAcross','depthColor'];
 export const hardKeys=['hardContour','hardAngle','hardWidth','hardColor'];
 export const hatchingKeys=Object.keys(defaults).filter(key=>!toonKeys.includes(key));
@@ -22,6 +22,7 @@ export const definitions = [
   ['tone-controls', 'cavity', 'Valley emphasis', 0, 3, 0.1, ''],
   ['tone-controls', 'highlight', 'Highlight clearing', 0, 0.5, 0.01, '%'],
   ['cross-controls', 'crossThreshold', 'Shadow threshold', 0.15, 0.95, 0.01, '%'],
+  ['cross-controls', 'crossAngle', 'Relative angle', 0, 180, 1, '°'],
   ['outline-controls', 'outlineWidth', 'Outline thickness', 0.5, 6, 0.1, ' px'],
   ['hard-contour-controls','hardAngle','Face angle threshold',0,180,1,'°'],
   ['hard-contour-controls','hardWidth','Hard contour thickness',.3,8,.1,' px'],
@@ -51,7 +52,7 @@ export function validateSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Preset settings are invalid.');
   const result = {};
   for (const [key, defaultValue] of Object.entries(defaults)) {
-    const item = (depthKeys.includes(key)||hardKeys.includes(key)||toonKeys.includes(key))&&value[key]===undefined?defaultValue:value[key];
+    const item = (depthKeys.includes(key)||hardKeys.includes(key)||toonKeys.includes(key)||key==='crossAngle')&&value[key]===undefined?defaultValue:value[key];
     if(key==='toonRamp'){result[key]=validateRamp(item);continue;}
     if(key==='shadeMode'||key==='toonBlend'){if(!(key==='shadeMode'?['hatch','toon','combined']:['linear','constant']).includes(item))throw new Error(`Preset ${key} is invalid.`);result[key]=item;continue;}
     if (typeof defaultValue === 'number') {

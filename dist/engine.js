@@ -5,22 +5,23 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { defaults, lightDefaults,hatchingSettings } from './settings.js?v=stop-blending-1';
+import { defaults, lightDefaults,hatchingSettings } from './settings.js?v=cross-angle-1';
 import {validateToonSettings} from './toon.js?v=stop-blending-1';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
 import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-rotation-1';
+import { sigilMeshKey, rememberSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
 import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
 import { ViewCompass, axisCameraPose, rollCameraPose } from './view-compass.js';
-import { renderOutput } from './output-renderer.js?v=transparent-png-1';
+import { renderOutput } from './output-renderer.js?v=cross-angle-1';
 import { copyOutputCamera } from './output-frame.js?v=crease-flow-1';
-export { defaults } from './settings.js?v=stop-blending-1';
+export { defaults } from './settings.js?v=cross-angle-1';
 
 const vertexShader = `
 in vec3 aFlow; in vec3 aGuide; in float aAnisotropy;
-uniform float uAspect; uniform float uAngle;
+uniform float uAspect; uniform float uAngle; uniform float uCrossAngle;
 out vec3 vNormal; out vec3 vPosition; out vec2 vFlow; out vec2 vCrossFlow; out vec3 vGuide; out float vConfidence;
 vec2 projectLine(vec3 p, vec3 tangent) {
   vec4 a = projectionMatrix * vec4(p, 1.0);
@@ -36,7 +37,7 @@ void main() {
   tangent=normalize(tangent-vNormal*dot(tangent,vNormal));
   tangent=tangent*cos(uAngle)+cross(vNormal,tangent)*sin(uAngle);
   vFlow = projectLine(p.xyz,tangent);
-  vCrossFlow = projectLine(p.xyz,cross(vNormal,tangent));
+  vCrossFlow = projectLine(p.xyz,tangent*cos(uCrossAngle)+cross(vNormal,tangent)*sin(uCrossAngle));
   vGuide = normalize(mat3(modelViewMatrix) * aGuide);
   vConfidence = aAnisotropy;
   gl_Position = projectionMatrix * p;
@@ -44,7 +45,7 @@ void main() {
 const fragmentShader = `
 precision highp float;
 in vec3 vNormal; in vec3 vPosition; in vec2 vFlow; in vec2 vCrossFlow; in vec3 vGuide; in float vConfidence;
-uniform mat4 projectionMatrix; uniform float uAspect; uniform float uAngle;
+uniform mat4 projectionMatrix; uniform float uAspect; uniform float uAngle; uniform float uCrossAngle;
 uniform float uId; uniform float uFar; uniform float uFlow; uniform float uAmbient;
 uniform int uCount; uniform int uShadeMode; uniform vec4 uLights[8]; uniform vec2 uPowers[8];
 layout(location=0) out vec4 outNormal;
@@ -72,7 +73,7 @@ void main() {
   vec3 guide=normalize(vGuide-n*dot(vGuide,n));
   guide=guide*cos(uAngle)+cross(normalize(vNormal),guide)*sin(uAngle);
   vec2 flow=normalize(mix(projectLine(vPosition,guide),vFlow,follow)+vec2(.00001));
-  vec2 crossFlow=normalize(mix(projectLine(vPosition,cross(n,guide)),vCrossFlow,follow)+vec2(.00001));
+  vec2 crossFlow=normalize(mix(projectLine(vPosition,guide*cos(uCrossAngle)+cross(normalize(vNormal),guide)*sin(uCrossAngle)),vCrossFlow,follow)+vec2(.00001));
   float d = clamp(-vPosition.z / uFar, 0.0, 1.0) * 65535.0;
   outNormal = vec4(crossFlow*.5+.5,1.0,uId/255.0);
   outField = vec4(flow*0.5+0.5, clamp(brightness, 0.0, 1.0), 1.0);
@@ -131,7 +132,7 @@ export class EtchEngine extends EventTarget {
     this.pendingGeometry = new Map();
     this.curvature.onmessage = ({ data }) => { const callback = this.pendingGeometry.get(data.id); if (!callback) return; this.pendingGeometry.delete(data.id); data.error ? callback.reject(new Error(data.error)) : callback.resolve(data); };
     this.curvature.onerror = e => { for (const pending of this.pendingGeometry.values()) pending.reject(new Error(e.message)); this.pendingGeometry.clear(); };
-    this.hatcher = new Worker(new URL('./hatch-worker.js?v=transparent-png-1', import.meta.url), { type: 'module' });
+    this.hatcher = new Worker(new URL('./hatch-worker.js?v=cross-angle-1', import.meta.url), { type: 'module' });
     this.hatcher.onmessage = ({ data }) => {
       this.busy = false;
       if (data.error) { this.emit('error', data.error); return; }
@@ -289,7 +290,7 @@ export class EtchEngine extends EventTarget {
   hasSurfaceCross(){return this.models.some(entry=>entry.visible&&this.styleFor(entry).cross&&this.styleFor(entry).shadeMode!=='toon');}
   fieldMaterial(id) {
     return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide, uniforms: {
-      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAngle:{value:this.params.angle*Math.PI/180},uAmbient: { value: this.params.ambient }, uCount: { value: 0 },uShadeMode:{value:0},
+      uId: { value: id }, uAspect: { value: this.camera.aspect }, uFar: { value: this.camera.far }, uFlow: { value: this.params.flow }, uAngle:{value:this.params.angle*Math.PI/180},uCrossAngle:{value:this.params.crossAngle*Math.PI/180},uAmbient: { value: this.params.ambient }, uCount: { value: 0 },uShadeMode:{value:0},
       uLights: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uPowers: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) }
     } });
   }
@@ -322,22 +323,27 @@ export class EtchEngine extends EventTarget {
   async createSigil(design = starterSigil(), name = 'Nature sigil', register = true, mesh = null) {
     design = validateSigil(design);
     if (!mesh) mesh = await new Promise((resolve,reject) => {
-      const worker = new Worker(new URL('./sigil-worker.js', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./sigil-worker.js?v=sigil-performance-1', import.meta.url), { type:'module' });
       worker.onmessage = ({data}) => { if (data.error || data.mesh) { worker.terminate(); data.error ? reject(new Error(data.error)) : resolve(data.mesh); } };
       worker.onerror = e => { worker.terminate(); reject(new Error(e.message)); }; worker.postMessage({id:1,design});
     });
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(mesh.position,3)); geometry.setAttribute('normal',new THREE.BufferAttribute(mesh.normal,3)); geometry.setIndex(new THREE.BufferAttribute(mesh.index,1));
     const root=new THREE.Mesh(geometry);let entry;
     try { entry=await this.addModel(root,name,false,register); } finally { geometry.dispose();root.material.dispose(); }
-    entry.type='sigil'; entry.source={kind:'sigil',design};
+    entry.type='sigil'; entry.source={kind:'sigil',design};if(register)rememberSigilMesh(entry,mesh);
     entry.object.traverse(node => { if (node.isMesh) { node.material.color.set(design.settings.color); node.material.metalness=design.settings.metalness; node.material.roughness=design.settings.roughness; } });
     if (register) { this.emit('scene'); this.invalidate(); this.draw(); this.schedule(); } return entry;
   }
   async updateSigil(entry, design, mesh) {
+    if(sigilMeshKey(entry.source.design)===sigilMeshKey(design)){
+      entry.source={kind:'sigil',design:validateSigil(design)};rememberSigilMesh(entry,mesh);
+      entry.object.traverse(node=>{if(node.isMesh){node.material.color.set(design.settings.color);node.material.metalness=design.settings.metalness;node.material.roughness=design.settings.roughness;}});
+      this.invalidate();this.emit('scene');this.emit('selection',entry);this.draw();this.schedule();return;
+    }
     const replacement = await this.createSigil(design,entry.name,false,mesh);
     for (const child of [...entry.object.children]) { entry.object.remove(child); child.traverse(node=>{node.geometry?.dispose();node.material?.dispose();node.userData.fieldMaterial?.dispose();}); }
     for (const child of [...replacement.object.children]) entry.object.add(child);
-    entry.source=replacement.source;entry.triangles=replacement.triangles;this.invalidate();this.emit('scene');this.emit('selection',entry);this.draw();this.schedule();
+    entry.source=replacement.source;entry.triangles=replacement.triangles;rememberSigilMesh(entry,mesh);this.invalidate();this.emit('scene');this.emit('selection',entry);this.draw();this.schedule();
   }
   async load(file, { register = true, source = null } = {}) {
     const ext = file.name.split('.').pop().toLowerCase(); let root;
@@ -449,7 +455,7 @@ export class EtchEngine extends EventTarget {
     try{
       for(let m=0;m<this.models.length;m++)this.models[m].object.traverse(mesh=>{
         if(!mesh.isMesh)return;originals.push([mesh,mesh.material]);const mat=mesh.userData.fieldMaterial;mesh.material=mat;
-        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAngle.value=style.angle*Math.PI/180;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;u.uShadeMode.value=style.shadeMode==='toon'?1:style.shadeMode==='combined'?2:0;
+        const style=this.styleFor(this.models[m]),u=mat.uniforms;u.uId.value=m+1;u.uAspect.value=camera.aspect;u.uFar.value=camera.far;u.uFlow.value=style.flow;u.uAngle.value=style.angle*Math.PI/180;u.uCrossAngle.value=(style.crossAngle??90)*Math.PI/180;u.uAmbient.value=style.ambient;u.uCount.value=lights.length;u.uShadeMode.value=style.shadeMode==='toon'?1:style.shadeMode==='combined'?2:0;
         for(let i=0;i<lights.length;i++){const light=lights[i],v=light.object.getWorldPosition(new THREE.Vector3());if(light.lightType==='sun')v.sub(light.target).normalize().transformDirection(camera.matrixWorldInverse);else v.applyMatrix4(camera.matrixWorldInverse);
           u.uLights.value[i].set(v.x,v.y,v.z,light.lightType==='sun'?0:1);const c=light.object.color;u.uPowers.value[i].set(light.intensity*(c.r*.2126+c.g*.7152+c.b*.0722),light.falloff);}
       });

@@ -4,7 +4,9 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { sigilDefaults, sigilControls, sigilPresets, sigilSharedKeys, motifSettings, curveSettings, validateSigil, makeCurve, makeNode, nodeMap, pointOf, radiusOf, resolveNode } from './sigil-data.js?v=sigil-rotation-1';
 import { SIGIL_PRESET_STORAGE_KEY, readSavedMotifs, saveNamedMotif, motifMatch } from './sigil-presets.js';
 import { vertexRingLayout, VertexRadiusDrag } from './sigil-radius.js';
-import { sampleCurve } from './sigil-geometry.js';
+import { sampleCurve } from './sigil-geometry.js?v=sigil-performance-1';
+import { sigilMeshKey, cachedSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
+import { SigilCurveOverlay } from './sigil-overlay.js?v=sigil-performance-1';
 import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { ViewPlaneDrag } from './view-drag.js';
 const clone=value=>structuredClone(value),plus=(a,b)=>a.map((v,i)=>v+b[i]),minus=(a,b)=>a.map((v,i)=>v-b[i]),mid=(a,b)=>a.map((v,i)=>(v+b[i])/2);
@@ -18,29 +20,39 @@ export class SigilEditor {
     this.q('.sigil-object-name').textContent=entry.name;document.body.append(this.dialog);this.dialog.showModal();
     this.q('[data-action="cancel"]').onclick=()=>this.close();this.dialog.addEventListener('cancel',e=>{e.preventDefault();if(!this.applying)this.close();});
     for(const [action,callback] of Object.entries({'apply':()=>this.apply(),'add-curve':()=>this.addCurve(),'delete-curve':()=>this.deleteCurve(),'add-vertex':()=>this.addVertex(),'delete-vertex':()=>this.deleteVertex(),'undo':()=>this.undo(-1),'redo':()=>this.undo(1),'frame':()=>this.frame(),'generate':()=>this.generate()}))this.q(`[data-action="${action}"]`).onclick=callback;
+    this.geometryKey=sigilMeshKey(this.design);
     this.bindSettingsTabs();this.createRenderer();this.createSettings();this.rebuildLists();this.record();this.rebuildOverlay();this.frame();
-    this.worker=new Worker(new URL('./sigil-worker.js',import.meta.url),{type:'module'});
-    this.worker.onmessage=({data})=>{
-      if(data.progress!=null){this.status(`${data.phase} · ${data.progress}%`);return;}
-      this.busy=false;
-      if(data.error){this.status(data.error,true);this.pendingApply?.reject(new Error(data.error));this.pendingApply=null;return;}
-      if(data.id===this.version){this.forceGenerate=false;this.meshData=data.mesh;this.meshVersion=data.id;this.showMesh(data.mesh);const detail=data.mesh.resolution?.adaptive?`Adaptive · ${data.mesh.resolution.refinement.toFixed(1)}× detail${data.mesh.resolution.limited?' · detail limit reached':''} · `:'';this.status(`${detail}${data.mesh.triangles.toLocaleString()} triangles · ${data.mesh.resolution?.blocks?.toLocaleString()||0} local regions · ${data.mesh.ms} ms`);if(this.pendingApply){this.pendingApply.resolve(data.mesh);this.pendingApply=null;}}
-      if(data.id!==this.version&&(this.design.settings.live||this.pendingApply||this.forceGenerate))this.generate();
-      else if(data.id!==this.version)this.status('Mesh paused · curves changed · click Generate mesh');
-    };
-    this.worker.onerror=e=>{this.busy=false;this.status(e.message,true);this.pendingApply?.reject(new Error(e.message));this.pendingApply=null;};this.generate();
+    const cached=cachedSigilMesh(entry);if(cached){this.meshData=cached;this.meshVersion=this.version;this.showMesh(cached);this.meshStatus('Cached mesh');}else this.generate();
     this.dialog.addEventListener('keydown',e=>{if(this.applying||this.pointDrag||this.navigation.active||e.target.matches('input,select'))return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){e.preventDefault();this.undo(e.key.toLowerCase()==='y'||e.shiftKey?1:-1);} });
     window.addEventListener('storage',e=>{if(e.key===SIGIL_PRESET_STORAGE_KEY||e.key===null)try{this.savedMotifs=readSavedMotifs(localStorage);this.motifStorageError=null;this.createSettings();}catch(error){this.status(error.message,true);}},{signal:this.dragAbort.signal});
   }
   q(selector){return this.dialog.querySelector(selector);}
   status(text,error=false){this.q('.sigil-status').textContent=text;this.q('.sigil-status').classList.toggle('inline-error',error);}
+  meshStatus(prefix=''){
+    const mesh=this.meshData;if(!mesh)return;
+    const detail=mesh.resolution?.adaptive?`Adaptive · ${mesh.resolution.refinement.toFixed(1)}× detail${mesh.resolution.limited?' · detail limit reached':''} · `:'';
+    this.status(`${prefix?prefix+' · ':''}${detail}${mesh.triangles.toLocaleString()} triangles · ${mesh.resolution?.blocks?.toLocaleString()||0} local regions · ${mesh.ms} ms`);
+  }
+  createWorker(){
+    const worker=this.worker=new Worker(new URL('./sigil-worker.js?v=sigil-performance-1',import.meta.url),{type:'module'});
+    worker.onmessage=({data})=>{
+      if(worker!==this.worker||this.closed||data.id!==this.version)return;
+      if(data.progress!=null){this.status(`${data.phase} · ${data.progress}%`);return;}
+      this.busy=false;
+      if(data.error){this.status(data.error,true);this.pendingApply?.reject(new Error(data.error));this.pendingApply=null;return;}
+      this.meshData=data.mesh;this.meshVersion=data.id;this.showMesh(data.mesh);this.meshStatus(data.mesh.reusedSurface?'Reused surface':'');
+      if(this.pendingApply){this.pendingApply.resolve(data.mesh);this.pendingApply=null;}
+    };
+    worker.onerror=e=>{if(worker!==this.worker||this.closed)return;this.worker=null;worker.terminate();this.busy=false;this.status(e.message,true);this.pendingApply?.reject(new Error(e.message));this.pendingApply=null;};
+  }
+  cancelGeneration(){if(!this.busy)return;this.worker?.terminate();this.worker=null;this.busy=false;}
   createRenderer() {
     const container=this.q('.sigil-viewport');this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.setClearColor('#14191d');this.renderer.domElement.setAttribute('aria-label','Sigil mesh and curve controls');container.append(this.renderer.domElement);
     this.scene=new THREE.Scene();this.overlay=new THREE.Scene();this.camera=new THREE.PerspectiveCamera(35,1,.01,500);this.camera.position.set(0,0,9);this.orbit=new OrbitControls(this.camera,this.renderer.domElement);configureOrbit(this.orbit);this.updateRotationLock();this.orbit.addEventListener('change',()=>this.draw());
     this.scene.add(new THREE.HemisphereLight('#e7f0ff','#363027',2));const key=new THREE.DirectionalLight('#fff4dc',3.3);key.position.set(3,4,7);this.scene.add(key);const rim=new THREE.DirectionalLight('#829bd0',2.5);rim.position.set(-4,2,-3);this.scene.add(rim);
     this.grid=new THREE.GridHelper(12,24,'#3d4e53','#242d32');this.grid.rotation.x=Math.PI/2;this.grid.position.z=-.8;this.scene.add(this.grid);
     this.preview=new THREE.Mesh(new THREE.BufferGeometry(),new THREE.MeshStandardMaterial({color:this.design.settings.color,metalness:this.design.settings.metalness,roughness:this.design.settings.roughness,side:THREE.DoubleSide}));this.scene.add(this.preview);
-    this.proxy=new THREE.Object3D();this.overlay.add(this.proxy);this.visuals=new THREE.Group();this.overlay.add(this.visuals);
+    this.proxy=new THREE.Object3D();this.overlay.add(this.proxy);this.curveOverlay=new SigilCurveOverlay();this.visuals=this.curveOverlay.group;this.overlay.add(this.visuals);
     this.transform=new TransformControls(this.camera,this.renderer.domElement);this.transform.setSize(.7);this.overlay.add(this.transform.getHelper());this.transform.addEventListener('change',()=>this.draw());
     this.navigation=new FlyNavigation(this.renderer.domElement,{camera:()=>this.camera,orbit:()=>this.orbit,canStart:()=>!this.design.settings.lockRotation&&!this.applying&&!this.transform.dragging&&!this.pointDrag,onStart:()=>{this.renderer.domElement.style.cursor='';this.transform.enabled=false;},onChange:()=>this.draw(),onEnd:()=>{if(!this.applying)this.transform.enabled=true;}});
     this.transform.addEventListener('dragging-changed',e=>{this.orbit.enabled=!e.value;if(!e.value){this.record();this.scheduleMesh();}});
@@ -90,7 +102,7 @@ export class SigilEditor {
     window.addEventListener('blur',()=>this.endPointDrag(),{signal:this.dragAbort.signal});
   }
   endPointDrag(record=true){if(!this.pointDrag)return;const drag=this.pointDrag;this.pointDrag=null;this.orbit.enabled=drag.orbitEnabled;this.transform.enabled=!this.applying;this.renderer.domElement.style.cursor='';if(this.renderer.domElement.hasPointerCapture(drag.id))this.renderer.domElement.releasePointerCapture(drag.id);if(record){this.record();this.scheduleMesh();}}
-  draw(){if(this.closed)return;this.camera.updateMatrixWorld(true);const height=Math.max(1,this.renderer.domElement.clientHeight);for(const marker of this.markers||[]){const distance=Math.max(.01,-marker.position.clone().applyMatrix4(this.camera.matrixWorldInverse).z);marker.scale.setScalar(distance*2*Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2))/height*marker.userData.radius);}this.updateRadiusRing();this.renderer.autoClear=true;this.renderer.render(this.scene,this.camera);this.renderer.autoClear=false;this.renderer.clearDepth();this.renderer.render(this.overlay,this.camera);this.renderer.autoClear=true;}
+  draw(){if(this.closed)return;this.camera.updateMatrixWorld(true);this.curveOverlay?.update(this.camera,this.renderer.domElement.clientHeight);this.updateRadiusRing();this.renderer.autoClear=true;this.renderer.render(this.scene,this.camera);this.renderer.autoClear=false;this.renderer.clearDepth();this.renderer.render(this.overlay,this.camera);this.renderer.autoClear=true;}
   createRadiusRing(){
     const ns='http://www.w3.org/2000/svg';this.radiusRing=document.createElementNS(ns,'svg');this.radiusRing.classList.add('sigil-radius-ring');
     this.radiusHit=document.createElementNS(ns,'circle');this.radiusHit.classList.add('radius-hit');this.radiusHit.setAttribute('role','button');this.radiusHit.setAttribute('aria-label','Drag to change vertex radius');this.radiusHit.setAttribute('tabindex','0');
@@ -112,19 +124,10 @@ export class SigilEditor {
   currentCurve(){return this.design.curves.find(c=>c.id===this.selected.curve);}
   currentNode(){return this.currentCurve()?.nodes.find(n=>n.id===this.selected.node);}
   rebuildOverlay(){
-    this.visuals.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});this.visuals.clear();this.markers=[];const map=nodeMap(this.design),show=this.design.settings.showCurves;
-    this.visuals.visible=show;
-    const line=(points,color,opacity=1)=>{const geometry=new THREE.BufferGeometry().setFromPoints(points.map(p=>new THREE.Vector3(...p))),material=new THREE.LineBasicMaterial({color,depthTest:false,depthWrite:false,transparent:true,opacity});const object=new THREE.Line(geometry,material);object.renderOrder=950;this.visuals.add(object);};
-    const marker=(position,color,pick,size=.045)=>{const object=new THREE.Mesh(new THREE.SphereGeometry(1,12,8),new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false}));object.position.fromArray(position);object.renderOrder=1000;object.userData.pick=pick;object.userData.radius=size===.032?3.5:size===.06?5.5:4.5;this.visuals.add(object);this.markers.push(object);};
-    for(const curve of this.design.curves){const s=curveSettings(this.design,curve),points=sampleCurve(curve,this.design).map(p=>p.p);line(points,curve.id===this.selected.curve?'#e9c69b':'#809f9c');const copies=s.symmetry==='radial'?s.radialCopies:s.symmetry==='mirror'?2:1;
-      for(let copy=1;copy<copies;copy++){const a=copy*Math.PI*2/copies;line(points.map(p=>s.symmetry==='mirror'?[-p[0],p[1],p[2]]:[Math.cos(a)*p[0]-Math.sin(a)*p[1],Math.sin(a)*p[0]+Math.cos(a)*p[1],p[2]]),'#577977',.4);}
-      for(const node of curve.nodes){const p=pointOf(node,map),pick={curve:curve.id,node:node.id};marker(p,node.link?'#70d0b0':node.id===this.selected.node?'#ffe0a5':'#d6ad78',{...pick,part:'p'},node.id===this.selected.node ? .06 : .045);
-        // The selected curve exposes both handles on every vertex. Other curves
-        // retain their vertices so branches and attachment poles remain easy to pick.
-        if(curve.id===this.selected.curve)for(const part of ['in','out']){const handle=plus(p,node[part]);line([p,handle],part==='in'?'#b998ef':'#73b5e2',.8);marker(handle,part==='in'?'#b998ef':'#73b5e2',{...pick,part},.032);}
-      }
-    }
-    const node=this.currentNode();if(node&&show&&this.design.settings.showAxes){const p=pointOf(node,map);this.proxy.position.fromArray(this.selected.part==='p'?p:plus(p,node[this.selected.part]));this.transform.attach(this.proxy);}else this.transform.detach();this.draw();
+    if(this.closed)return;if(this.overlayFrame){cancelAnimationFrame(this.overlayFrame);this.overlayFrame=null;}
+    this.markers=this.curveOverlay.rebuild(this.design,this.selected);
+    const node=this.currentNode(),map=nodeMap(this.design);
+    if(node&&this.design.settings.showCurves&&this.design.settings.showAxes){const p=pointOf(node,map);this.proxy.position.fromArray(this.selected.part==='p'?p:plus(p,node[this.selected.part]));this.transform.attach(this.proxy);}else this.transform.detach();this.draw();
   }
   resetButton(label,callback){const b=button('↺',callback,'property-reset');b.setAttribute('aria-label',`Reset ${label} to default`);return b;}
   field(parent,label,value,onChange,{type='number',min,max,step=.05,reset=value,validate=null}={}){const wrap=document.createElement('div');wrap.className='sigil-field';const l=document.createElement('label'),input=document.createElement('input');l.textContent=label;input.type=type;input.value=value;input.setAttribute('aria-label',label);if(min!=null)input.min=min;if(max!=null)input.max=max;if(type==='number')input.step=step;l.append(input);wrap.append(l,this.resetButton(label,()=>{input.value=reset;onChange(type==='number'?+reset:reset);}));const commit=final=>{const v=type==='number'?+input.value:input.value;if(type==='number'&&(!input.value||!Number.isFinite(v)||(min!=null&&v<min)||(max!=null&&v>max)||(validate&&!validate(v)))){if(final)input.value=value;return;}onChange(v);value=v;};input.onchange=()=>commit(true);if(type==='number'||type==='color')input.oninput=()=>commit(false);parent.append(wrap);return input;}
@@ -204,11 +207,18 @@ export class SigilEditor {
   syncCoordinates(){const node=this.currentNode();if(!node)return;const part=this.selected.part,values=part==='p'?pointOf(node,nodeMap(this.design)):node[part];for(const [i,axis]of ['X','Y','Z'].entries()){const input=this.q(`[aria-label="${part==='p'?'Vertex':part==='in'?'Incoming handle':'Outgoing handle'} ${axis}"]`);if(input&&input!==document.activeElement)input.value=Number(values[i].toFixed(3));}}
   setHandle(node,part,value){node[part]=[...value];if(node.mode==='free')return;const opposite=part==='in'?'out':'in',length=Math.hypot(...value),previous=Math.hypot(...node[opposite]);node[opposite]=value.map(v=>-v*(node.mode==='mirrored'?1:previous/(length||1)));}
   styleId(){return this.motifPresets().find(p=>motifMatch(p.settings,this.motifTarget()))?.id||'custom';}
-  changed(record=true){this.version++;this.updateRotationLock();this.finishMaterial();this.rebuildOverlay();this.refreshAdaptiveControls();this.updateMotifStatus();if(record)this.record();this.status(this.design.settings.live?'Mesh update queued…':'Mesh paused · curves changed · click Generate mesh');this.scheduleMesh();}
+  changed(record=true){
+    const key=sigilMeshKey(this.design),geometryChanged=key!==this.geometryKey;
+    if(geometryChanged){this.geometryKey=key;this.version++;this.cancelGeneration();}
+    this.updateRotationLock();this.finishMaterial();this.scheduleOverlay();this.refreshAdaptiveControls();this.updateMotifStatus();if(record)this.record();
+    if(this.meshVersion!==this.version){this.status(this.design.settings.live?'Mesh update queued…':'Mesh paused · curves changed · click Generate mesh');this.scheduleMesh();}
+    else{clearTimeout(this.timer);this.meshStatus();}
+  }
+  scheduleOverlay(){if(this.overlayFrame)return;this.overlayFrame=requestAnimationFrame(()=>{this.overlayFrame=null;this.rebuildOverlay();});}
   record(){const state=JSON.stringify(this.design);if(this.history[this.historyIndex]!==state){this.history=this.history.slice(0,this.historyIndex+1);this.history.push(state);if(this.history.length>60)this.history.shift();this.historyIndex=this.history.length-1;}this.q('[data-action="undo"]').disabled=this.historyIndex===0;this.q('[data-action="redo"]').disabled=this.historyIndex===this.history.length-1;}
   undo(direction){const index=this.historyIndex+direction;if(index<0||index>=this.history.length)return;this.historyIndex=index;this.design=JSON.parse(this.history[index]);this.rebuildLists();this.createSettings();this.changed(false);this.record();}
-  scheduleMesh(){clearTimeout(this.timer);if(this.design.settings.live)this.timer=setTimeout(()=>this.generate(),200);}
-  generate(){clearTimeout(this.timer);this.forceGenerate=true;if(this.busy)return;this.busy=true;this.forceGenerate=false;this.status('Generating closed mesh…');this.worker.postMessage({id:this.version,design:clone(this.design)});}
+  scheduleMesh(){clearTimeout(this.timer);if(this.design.settings.live&&this.meshVersion!==this.version)this.timer=setTimeout(()=>this.generate(),150);}
+  generate(){clearTimeout(this.timer);if(this.closed||this.busy)return;if(this.meshVersion===this.version){this.meshStatus();return;}if(!this.worker)this.createWorker();this.busy=true;this.status('Generating closed mesh…');this.worker.postMessage({id:this.version,design:this.design});}
   unlinkReferences(ids){const map=nodeMap(this.design);for(const curve of this.design.curves)for(const node of curve.nodes)if(ids.has(node.link)){node.p=[...pointOf(node,map)];node.radius=radiusOf(node,map);node.link=null;}}
   addCurve(){const node=this.currentNode(),p=pointOf(node,nodeMap(this.design)),curve=makeCurve(`Curve ${this.design.curves.length+1}`,[p,plus(p,[.5,.35,0]),plus(p,[.8,1,0])]);curve.nodes[0].link=resolveNode(node,nodeMap(this.design)).id;curve.nodes[0].out=[.3,.12,0];curve.nodes[1].in=[-.25,-.15,0];curve.nodes[1].out=[.25,.15,0];this.design.curves.push(curve);this.selected={curve:curve.id,node:curve.nodes[0].id,part:'out'};this.changed();this.rebuildLists();this.rebuildOverlay();}
   deleteCurve(){if(this.design.curves.length<2)return;const curve=this.currentCurve();this.unlinkReferences(new Set(curve.nodes.map(n=>n.id)));this.design.curves=this.design.curves.filter(c=>c!==curve);this.selected={curve:this.design.curves[0].id,node:this.design.curves[0].nodes[0].id,part:'p'};this.changed();this.rebuildLists();}
@@ -219,5 +229,5 @@ export class SigilEditor {
   }
   deleteVertex(){const curve=this.currentCurve(),node=this.currentNode();if(curve.nodes.length<=2)return;this.unlinkReferences(new Set([node.id]));curve.nodes=curve.nodes.filter(n=>n!==node);this.selected={curve:curve.id,node:curve.nodes[0].id,part:'p'};this.changed();this.rebuildLists();}
   async apply(){if(this.applying)return;this.endPointDrag();this.navigation.stop();this.applying=true;this.dialog.querySelectorAll('button,input,select').forEach(input=>input.disabled=true);this.transform.enabled=this.orbit.enabled=false;try{const mesh=this.meshVersion===this.version?this.meshData:await new Promise((resolve,reject)=>{this.pendingApply={resolve,reject};this.generate();});this.status('Preparing hatching geometry…');await this.onApply(validateSigil(this.design),mesh);this.close();}catch(error){this.status(error.message,true);this.applying=false;this.dialog.querySelectorAll('button,input,select').forEach(input=>input.disabled=false);this.transform.enabled=this.orbit.enabled=true;this.rebuildLists();this.refreshAdaptiveControls();}}
-  close(){if(this.closed)return;this.closed=true;this.saveDialog?.close();this.endPointDrag(false);this.dragAbort.abort();clearTimeout(this.timer);this.worker?.terminate();this.observer.disconnect();this.navigation.dispose();this.orbit.dispose();this.transform.dispose();for(const scene of [this.scene,this.overlay])scene.traverse(o=>{o.geometry?.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material?.dispose();});this.renderer.dispose();this.renderer.forceContextLoss();this.dialog.close();this.dialog.remove();}
+  close(){if(this.closed)return;this.closed=true;this.saveDialog?.close();this.endPointDrag(false);this.dragAbort.abort();clearTimeout(this.timer);cancelAnimationFrame(this.overlayFrame);this.worker?.terminate();this.curveOverlay.instances.dispose();this.observer.disconnect();this.navigation.dispose();this.orbit.dispose();this.transform.dispose();for(const scene of [this.scene,this.overlay])scene.traverse(o=>{o.geometry?.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material?.dispose();});this.renderer.dispose();this.renderer.forceContextLoss();this.dialog.close();this.dialog.remove();}
 }

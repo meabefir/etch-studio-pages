@@ -1,4 +1,4 @@
-import { validateSettings,hatchingSettings } from './settings.js?v=stop-blending-1';
+import { validateSettings,hatchingSettings } from './settings.js?v=cross-angle-1';
 import {toonKeys,validateToonSettings} from './toon.js?v=stop-blending-1';
 import { projections } from './lenses.js';
 import { validateSigil } from './sigil-data.js?v=sigil-rotation-1';
