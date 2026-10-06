@@ -2,7 +2,7 @@ import {hatchingSettings,saveNamedPreset,readSavedPresets} from './settings.js?v
 import {motifSettings} from './sigil-data.js';
 import {saveNamedMotif,readSavedMotifs} from './sigil-presets.js';
 import {rampSettings,saveNamedRampPreset,readSavedRampPresets} from './toon-presets.js?v=stop-blending-1';
-import {validateScene} from './scenes.js?v=cross-angle-1';
+import {validateScene} from './scenes.js?v=sigil-references-1';
 
 const types={
   hatching:{label:'preset',validate:hatchingSettings,save:saveNamedPreset,read:readSavedPresets},

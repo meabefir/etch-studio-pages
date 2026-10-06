@@ -1,3 +1,4 @@
+import {validateReferences} from './sigil-reference-data.js';
 export const sigilDefaults = {
   curveResolution: 18, meshResolution: 92, adaptiveResolution: false, adaptiveQuality: 2, adaptiveBoost: 3, detailBudget:9000000, smoothMesh:false, smoothAngle:45, smoothStrength:.35, smoothPasses:4, smoothVolume:true, radiusScale: 1, flatten: 1, bulge: .12, endTaper: .25, tipLength: .4, cap: 'rounded',
   blend: .055, poleBulge: 1.18, symmetry: 'mirror', radialCopies: 4, twist: 0,
@@ -57,7 +58,7 @@ export function validateSigil(value) {
     const visited=new Set([node.id]); let current=node;
     while(current.link){if(visited.has(current.link))throw new Error('Pole connections cannot form a reference cycle.');visited.add(current.link); current=curves.flatMap(c=>c.nodes).find(n=>n.id===current.link);}
   }
-  return {version:1,settings,curves};
+  return {version:1,settings,curves,...(value.references===undefined?{}:{references:validateReferences(value.references)})};
 }
 export function nodeMap(design) { return new Map(design.curves.flatMap(c=>c.nodes.map(n=>[n.id,n]))); }
 export function resolveNode(node, map) { const visited=new Set(); while(node.link&&!visited.has(node.id)){visited.add(node.id);node=map.get(node.link)||node;}return node; }

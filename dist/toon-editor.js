@@ -1,6 +1,6 @@
 import {toonDefaults,validateRamp,rampColor,stopInterpolation,hex} from './toon.js?v=stop-blending-1';
 import {builtinRampPresets,rampSettings,rampSettingsMatch,readSavedRampPresets,saveNamedRampPreset} from './toon-presets.js?v=stop-blending-1';
-import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=share-files-1';
+import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=sigil-references-1';
 
 export class ToonEditor{
   constructor(panel,{getStyle,onChange,onScope,resetButton,getOverride=()=>null,onCustom=()=>{},onMessage=()=>{},getStorage=()=>localStorage}){

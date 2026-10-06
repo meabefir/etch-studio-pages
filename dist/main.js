@@ -1,13 +1,13 @@
 import { registerBrowserTools } from './browser-tools.js';
-import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=share-files-1';
+import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=sigil-references-1';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
-import { ToonEditor } from './toon-editor.js?v=share-files-1';
-import { EtchEngine } from './engine.js?v=obj-faces-1';
+import { ToonEditor } from './toon-editor.js?v=sigil-references-1';
+import { EtchEngine } from './engine.js?v=sigil-references-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
-import { starterSigil } from './sigil-data.js?v=sigil-rotation-1';
+import { starterSigil } from './sigil-data.js?v=sigil-references-1';
 import { cameraDefaults, projections } from './lenses.js';
-import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=cross-angle-1';
+import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=sigil-references-1';
 
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
@@ -17,7 +17,7 @@ const controls = new Map();
 let savedPresets = [], selectedPresetId = 'engraving', hatchTarget = null, toonTarget = null, savedScenes = [], selectedSceneId = '', sceneBusy = false, localPaths = false;
 const cameraControls = new Map();
 let sigilEditor,toonEditor,sceneFileControls,currentSceneName='Etch scene';
-async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=handle-scale-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
+async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return; try { const { SigilEditor } = await import('./sigil-editor.js?v=sigil-references-1'); engine.select(entry); sigilEditor = new SigilEditor(entry, async (design, mesh) => { await engine.updateSigil(entry, design, mesh); tab('selection'); }); } catch (error) { console.error(error.stack); toast(`Could not open sigil editor: ${error.message}`); } }
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
   try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }

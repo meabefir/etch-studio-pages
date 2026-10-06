@@ -9,7 +9,7 @@ import { defaults, lightDefaults,hatchingSettings } from './settings.js?v=cross-
 import {validateToonSettings} from './toon.js?v=stop-blending-1';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
-import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-rotation-1';
+import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-references-1';
 import { sigilMeshKey, rememberSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
 import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { LightVisuals } from './light-visuals.js';
@@ -325,7 +325,7 @@ export class EtchEngine extends EventTarget {
     if (!mesh) mesh = await new Promise((resolve,reject) => {
       const worker = new Worker(new URL('./sigil-worker.js?v=sigil-performance-1', import.meta.url), { type:'module' });
       worker.onmessage = ({data}) => { if (data.error || data.mesh) { worker.terminate(); data.error ? reject(new Error(data.error)) : resolve(data.mesh); } };
-      worker.onerror = e => { worker.terminate(); reject(new Error(e.message)); }; worker.postMessage({id:1,design});
+      worker.onerror = e => { worker.terminate(); reject(new Error(e.message)); }; const {references,...geometryDesign}=design;worker.postMessage({id:1,design:geometryDesign});
     });
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(mesh.position,3)); geometry.setAttribute('normal',new THREE.BufferAttribute(mesh.normal,3)); geometry.setIndex(new THREE.BufferAttribute(mesh.index,1));
     const root=new THREE.Mesh(geometry);let entry;
