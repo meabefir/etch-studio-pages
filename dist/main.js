@@ -400,7 +400,7 @@ async function init() {
   document.addEventListener('keydown', e => {
     if (engine.navigation.active || engine.transform.dragging || document.querySelector('dialog[open]') || e.isComposing || e.target.matches?.('input,select,textarea') || e.target.isContentEditable) return;
     const key = e.key.toLowerCase();
-    if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&key==='d'){e.preventDefault();if(!e.repeat)duplicateSelected();return;}
+    if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&key==='d'){e.preventDefault();if(!e.repeat)duplicateSelected();return;}
     if(e.ctrlKey||e.metaKey||e.altKey)return;
     if (['delete', 'backspace', 'f', 'w', 'e', 'r', 'escape', '1', '2'].includes(key)) e.preventDefault();
     if (key === 'delete' || key === 'backspace') engine.remove();
