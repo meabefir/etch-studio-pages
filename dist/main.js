@@ -2,7 +2,7 @@ import { registerBrowserTools } from './browser-tools.js';
 import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=sigil-references-1';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
 import { ToonEditor } from './toon-editor.js?v=sigil-references-1';
-import { EtchEngine } from './engine.js?v=sigil-references-1';
+import { EtchEngine } from './engine.js?v=duplicate-objects-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
 import { starterSigil } from './sigil-data.js?v=sigil-references-1';
@@ -21,6 +21,11 @@ async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
   try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }
+}
+function duplicateSelected() {
+  if(sceneBusy||importBusy)return toast('Wait for scene loading to finish.');
+  if(engine.navigation.active||engine.transform.dragging)return;
+  try{const copy=engine.duplicate();if(copy){tab('selection');toast(`Duplicated “${copy.name}”.`);}}catch(error){toast(error.message);}
 }
 
 const hatchParams = () => hatchTarget ? engine.styleFor(hatchTarget) : engine.params;
@@ -115,6 +120,7 @@ function sceneList() {
   $('camera-count').textContent = engine.cameras.length;
   $('add-camera').disabled = engine.cameras.length >= 100;
   $('delete').disabled = !engine.selected || (engine.selected.type === 'camera' && engine.cameras.length === 1);
+  $('duplicate').disabled = !engine.selected;
   document.querySelectorAll('[data-transform]').forEach(button=>{button.disabled=engine.selected?.type==='light'&&button.dataset.transform!=='translate';button.classList.toggle('active',button.dataset.transform===engine.transform.mode);});
   populateHatchScope();
   refreshSettings();
@@ -353,7 +359,7 @@ async function init() {
   $('reset-depth').onclick=()=>{applyHatchPatch(Object.fromEntries(depthKeys.map(key=>[key,defaults[key]])));};
   $('add-sun').onclick = () => { engine.select(engine.addLight('sun')); tab('selection'); };
   $('add-point').onclick = () => { engine.select(engine.addLight('point')); tab('selection'); };
-  $('delete').onclick = () => engine.remove(); $('frame').onclick = () => engine.frame(); $('reset-camera').onclick = () => engine.resetCamera();
+  $('duplicate').onclick = duplicateSelected; $('delete').onclick = () => engine.remove(); $('frame').onclick = () => engine.frame(); $('reset-camera').onclick = () => engine.resetCamera();
   $('grid').onchange = () => { engine.grid.visible = $('grid').checked;if(engine.activeCamera.projection==='fisheye'){engine.invalidate();engine.schedule();}engine.draw(); };
   $('space').onchange = () => { engine.transform.setSpace($('space').value); engine.draw(); };
   attachReset($('grid'), 'Grid', 'off', () => { $('grid').checked = engine.grid.visible = false; engine.draw(); });
@@ -392,8 +398,10 @@ async function init() {
   window.addEventListener('storage', e => { if (e.key === SCENE_STORAGE_KEY || e.key === null) { try { savedScenes = readSavedScenes(localStorage); populateScenes(); } catch (error) { toast(error.message); } } if (e.key === PRESET_STORAGE_KEY || e.key === null) { try { savedPresets = readSavedPresets(localStorage); populatePresets(); updatePresetStatus(); } catch (error) { toast(error.message); } } });
   const outputEditor=new OutputEditor(engine);$('export').onclick=()=>outputEditor.open();
   document.addEventListener('keydown', e => {
-    if (engine.navigation.active || document.querySelector('dialog[open]') || e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (engine.navigation.active || engine.transform.dragging || document.querySelector('dialog[open]') || e.isComposing || e.target.matches?.('input,select,textarea') || e.target.isContentEditable) return;
     const key = e.key.toLowerCase();
+    if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&key==='d'){e.preventDefault();if(!e.repeat)duplicateSelected();return;}
+    if(e.ctrlKey||e.metaKey||e.altKey)return;
     if (['delete', 'backspace', 'f', 'w', 'e', 'r', 'escape', '1', '2'].includes(key)) e.preventDefault();
     if (key === 'delete' || key === 'backspace') engine.remove();
     else if (key === 'f') engine.frame(); else if (key === 'escape') engine.select(null);

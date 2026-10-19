@@ -10,7 +10,7 @@ import {validateToonSettings} from './toon.js?v=stop-blending-1';
 import {HardContourRenderer} from './hard-contours.js?v=crease-flow-1';
 import { cameraDefaults, isLens, lensMap, lensFragmentShader, warpBuffers } from './lenses.js?v=crease-flow-1';
 import { starterSigil, validateSigil } from './sigil-data.js?v=sigil-references-1';
-import { sigilMeshKey, rememberSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
+import { sigilMeshKey, rememberSigilMesh, cachedSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
 import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { LightVisuals } from './light-visuals.js';
 import { InfiniteGrid } from './infinite-grid.js';
@@ -79,6 +79,19 @@ void main() {
   outField = vec4(flow*0.5+0.5, clamp(brightness, 0.0, 1.0), 1.0);
   outDepth = vec4(floor(d/256.0)/255.0, mod(floor(d),256.0)/255.0, 0.0, 1.0);
 }`;
+
+function cloneModelObject(source,fieldMaterial) {
+  // Scene roots refer back to their entries. Clone the render resources without
+  // copying that circular userData, and give every copy its own disposable data.
+  const materials=material=>Array.isArray(material)?material.map(m=>m.clone()):material.clone();
+  const object=source.isMesh?new THREE.Mesh(source.geometry.clone(),materials(source.material)):new THREE.Group();
+  object.name=source.name;object.position.copy(source.position);object.rotation.copy(source.rotation);object.scale.copy(source.scale);object.up.copy(source.up);
+  object.visible=source.visible;object.layers.mask=source.layers.mask;object.renderOrder=source.renderOrder;object.frustumCulled=source.frustumCulled;object.castShadow=source.castShadow;object.receiveShadow=source.receiveShadow;
+  object.matrixAutoUpdate=source.matrixAutoUpdate;object.matrix.copy(source.matrix);
+  if(source.isMesh)object.userData.fieldMaterial=fieldMaterial();
+  for(const child of source.children)object.add(cloneModelObject(child,fieldMaterial));
+  return object;
+}
 
 export class EtchEngine extends EventTarget {
   constructor(container, paperCanvas) {
@@ -387,6 +400,27 @@ export class EtchEngine extends EventTarget {
     entry.helper.update(); this.invalidate(); this.draw(); this.schedule();
   }
   setVisible(entry, visible) { entry.visible = visible; entry.object.visible = visible; if (!visible && this.selected === entry) this.select(null); this.invalidate(); this.emit('scene'); this.draw(); this.schedule(); }
+  duplicate(entry = this.selected) {
+    const entries=[...this.models,...this.lights,...this.cameras];if(!entry||!entries.includes(entry))return null;
+    const stem=entry.name.replace(/ copy(?: \d+)?$/i,'').trimEnd()||entry.name,used=new Set(entries.map(item=>item.name.toLowerCase()));let name;
+    for(let i=1;;i++){const suffix=` copy${i===1?'':` ${i}`}`;name=stem.slice(0,100-suffix.length).trimEnd()+suffix;if(!used.has(name.toLowerCase()))break;}
+    let copy;
+    if(['model','sigil'].includes(entry.type)){
+      if(this.models.length>=200)throw new Error('The scene supports up to 200 models.');
+      const object=cloneModelObject(entry.object,()=>this.fieldMaterial(this.models.length+1));object.name=name;
+      copy={id:`model-${crypto.randomUUID()}`,type:entry.type,name,object,triangles:entry.triangles,visible:entry.visible,source:structuredClone(entry.source),hatch:structuredClone(entry.hatch||null),toon:structuredClone(entry.toon||null)};
+      object.userData.entry=copy;this.models.push(copy);this.scene.add(object);
+      if(entry.type==='sigil'){const mesh=cachedSigilMesh(entry);if(mesh)rememberSigilMesh(copy,mesh);}
+    }else if(entry.type==='light'){
+      copy=this.addLight(entry.lightType);copy.name=name;copy.object.position.copy(entry.object.position);copy.target.copy(entry.target);
+      for(const key of ['intensity','falloff','color','helperEnabled','visible'])copy[key]=entry[key];copy.object.visible=copy.visible;this.updateLight(copy);
+    }else if(entry.type==='camera'){
+      if(this.cameras.length>=100)throw new Error('The scene supports up to 100 cameras.');
+      copy=this.addCamera({...this.cameraSnapshot(entry),name});
+    }else return null;
+    if(copy.type!=='model'&&copy.type!=='sigil')copy.id=`${copy.type}-${crypto.randomUUID()}`;
+    this.invalidate();this.select(copy);this.emit('scene');this.draw();this.schedule();return copy;
+  }
   remove(entry = this.selected) {
     if (!entry) return;
     if (entry.type === 'camera') {
