@@ -1,4 +1,4 @@
-import {motifSettings,sigilMotifKeys} from './sigil-data.js';
+import {motifSettings,sigilMotifKeys} from './sigil-data.js?v=thorn-base-only-1';
 export const SIGIL_PRESET_STORAGE_KEY='etch.sigil-motifs.v1';
 export const motifMatch=(a,b)=>sigilMotifKeys.every(key=>a[key]===b[key]);
 export function readSavedMotifs(storage){

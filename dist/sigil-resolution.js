@@ -1,4 +1,4 @@
-import { nodeMap, radiusOf, curveSettings } from './sigil-data.js';
+import { nodeMap, radiusOf, curveSettings } from './sigil-data.js?v=thorn-base-only-1';
 const distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
 function cubic(p,a,b,q,t){const u=1-t;return p.map((v,i)=>v*u*u*u+3*a[i]*u*u*t+3*b[i]*u*t*t+q[i]*t*t*t);}
 function lineDistance(p,a,b){const d=b.map((v,i)=>v-a[i]),l=d.reduce((n,v)=>n+v*v,0),t=l?Math.max(0,Math.min(1,p.reduce((n,v,i)=>n+(v-a[i])*d[i],0)/l)):0;return distance(p,a.map((v,i)=>v+d[i]*t));}

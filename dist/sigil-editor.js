@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { sigilDefaults, sigilControls, sigilPresets, sigilSharedKeys, motifSettings, curveSettings, validateSigil, makeCurve, makeNode, nodeMap, pointOf, radiusOf, resolveNode } from './sigil-data.js?v=sigil-references-1';
-import { SIGIL_PRESET_STORAGE_KEY, readSavedMotifs, saveNamedMotif, motifMatch } from './sigil-presets.js';
-import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=sigil-references-1';
+import { sigilDefaults, sigilControls, sigilPresets, sigilSharedKeys, motifSettings, curveSettings, validateSigil, makeCurve, makeNode, nodeMap, pointOf, radiusOf, resolveNode } from './sigil-data.js?v=thorn-base-only-1';
+import { SIGIL_PRESET_STORAGE_KEY, readSavedMotifs, saveNamedMotif, motifMatch } from './sigil-presets.js?v=thorn-base-only-1';
+import {attachFileControls,importSharedPreset,presetImportMessage} from './share-files.js?v=thorn-base-only-1';
 import {SigilReferenceEditor} from './sigil-references.js';
 import {referenceHistoryState,restoreReferenceHistory} from './sigil-reference-data.js';
 import { vertexRingLayout, VertexRadiusDrag } from './sigil-radius.js';
-import { sampleCurve } from './sigil-geometry.js?v=sigil-performance-1';
+import { sampleCurve } from './sigil-geometry.js?v=thorn-base-only-1';
 import { sigilMeshKey, cachedSigilMesh } from './sigil-generation.js?v=sigil-performance-1';
-import { SigilCurveOverlay } from './sigil-overlay.js?v=sigil-performance-1';
+import { SigilCurveOverlay } from './sigil-overlay.js?v=thorn-base-only-1';
 import { configureOrbit, FlyNavigation } from './navigation.js?v=middle-orbit-1';
 import { ViewPlaneDrag } from './view-drag.js';
 const clone=value=>structuredClone(value),plus=(a,b)=>a.map((v,i)=>v+b[i]),minus=(a,b)=>a.map((v,i)=>v-b[i]),mid=(a,b)=>a.map((v,i)=>(v+b[i])/2);
@@ -37,7 +37,7 @@ export class SigilEditor {
     this.status(`${prefix?prefix+' · ':''}${detail}${mesh.triangles.toLocaleString()} triangles · ${mesh.resolution?.blocks?.toLocaleString()||0} local regions · ${mesh.ms} ms`);
   }
   createWorker(){
-    const worker=this.worker=new Worker(new URL('./sigil-worker.js?v=sigil-performance-1',import.meta.url),{type:'module'});
+    const worker=this.worker=new Worker(new URL('./sigil-worker.js?v=thorn-base-only-1',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{
       if(worker!==this.worker||this.closed||data.id!==this.version)return;
       if(data.progress!=null){this.status(`${data.phase} · ${data.progress}%`);return;}
@@ -184,7 +184,7 @@ export class SigilEditor {
     for(const group of [...new Set(sigilControls.map(c=>c[0]))]){if(group==='Resolution & finish'){const fields=document.createElement('fieldset');fields.className='sigil-motif-fields';finish.append(fields);groups.set(group,fields);continue;}const details=document.createElement('details');details.dataset.group=group;details.open=expanded.get(group)??['Shape','Thorns'].includes(group);const summary=document.createElement('summary');summary.textContent=group;const fields=document.createElement('fieldset');fields.className='sigil-motif-fields';fields.disabled=inherited&&group!=='Resolution & finish';details.append(summary,fields);parent.append(details);groups.set(group,fields);}
     const shape=this.motifTarget(),choose=(group,label,key,values)=>this.choice(groups.get(group),label,values,shape[key],value=>{this.motifTarget(true)[key]=value;this.changed();},sigilDefaults[key]);
     choose('Shape','Symmetry','symmetry',[['none','None'],['mirror','Mirror across X'],['radial','Radial around Z']]);choose('Shape','End caps','cap',[['rounded','Rounded'],['flat','Flat'],['pointed','Pointed']]);
-    this.check(groups.get('Ripples & waves'),'Enable radius ripples','ripple');this.check(groups.get('Thorns'),'Grow thorns','thorns');choose('Thorns','Thorn distribution','thornSides',[['alternate','Alternating'],['paired','Paired'],['spiral','Spiral']]);this.check(groups.get('Leaves'),'Grow leaves','leaves');
+    this.check(groups.get('Ripples & waves'),'Enable radius ripples','ripple');this.check(groups.get('Thorns'),'Grow thorns','thorns');this.check(groups.get('Thorns'),'Merge at base only','thornBaseOnly');const thornHint=document.createElement('p');thornHint.className='hint';thornHint.textContent='Joins each thorn to its own curve at the root. Thorn bodies stay separate when they cross other thorns, curves or leaves.';groups.get('Thorns').append(thornHint);choose('Thorns','Thorn distribution','thornSides',[['alternate','Alternating'],['paired','Paired'],['spiral','Spiral']]);this.check(groups.get('Leaves'),'Grow leaves','leaves');
     const resolution=groups.get('Resolution & finish');const shared=document.createElement('p');shared.className='hint';shared.textContent='Shared by every curve in this sigil.';resolution.append(shared);this.check(resolution,'Adaptive resolution','adaptiveResolution');const resolutionHint=document.createElement('p');resolutionHint.className='hint';resolutionHint.textContent='Samples only regions around the curves and their growth. Mesh detail follows local thickness, so moving a vertex far away preserves the rest of the mesh. Adaptive resolution adds samples for fine features. Maximum detail boost limits the increase; larger values take longer.';resolution.append(resolutionHint);
     for(const [group,key,label,min,max,step]of sigilControls){const wrap=document.createElement('div');wrap.className='control';const row=document.createElement('div');row.className='control-label';const l=document.createElement('label'),output=document.createElement('output'),input=document.createElement('input');l.textContent=label;input.type='range';input.id=`sigil-setting-${key}`;l.htmlFor=input.id;input.min=min;input.max=max;input.step=({flatten:.01,bulge:.01,endTaper:.01,poleBulge:.01,rippleAmplitude:.01,thornLength:.01,thornLean:.01,bark:.005,spineWave:.005,roughness:.01})[key]||step;input.value=this.settingObject(key)[key];output.value=Number(Number(input.value).toFixed(3));
       const apply=value=>{this.settingObject(key,true)[key]=value;output.value=value;input.value=value;this.changed(false);};input.oninput=()=>apply(+input.value);input.onchange=()=>this.record();row.append(l,output,this.resetButton(label,()=>{apply(sigilDefaults[key]);this.record();}));wrap.append(row,input);groups.get(group).append(wrap);

@@ -5,7 +5,7 @@ export const sigilDefaults = {
   ripple: true, rippleAmplitude: .12, rippleFrequency: 8, ripplePhase: 0, rippleSharpness: 1,
   spineWave: 0, spineFrequency: 3, spineDepth: 0,
   ridges: 0, ridgeDepth: 0, ridgeTwist: 0, bark: .035, barkFrequency: 18,
-  thorns: true, thornDensity: 2.8, thornLength: .42, thornRadius: .085, thornCurve: .55, thornLean: -.22, thornJitter: .2, thornSides: 'alternate',
+  thorns: true, thornBaseOnly:true, thornDensity: 2.8, thornLength: .42, thornRadius: .085, thornCurve: .55, thornLean: -.22, thornJitter: .2, thornSides: 'alternate',
   leaves: false, leafDensity: 1.3, leafLength: .6, leafWidth: .18, leafThickness: .18, leafCurl: .35,
   seed: 12, metalness: .15, roughness: .55, color: '#bfae93', live: true, showCurves: true,showAxes:false,lockRotation:false
 };
@@ -32,7 +32,9 @@ const limits=Object.fromEntries(sigilControls.map(([,key,,min,max])=>[key,[min,m
 limits.detailBudget=[512,Infinity];
 function settingsFor(value,keys){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid sigil settings.');
-  const settings={};for(const key of keys){const v=value[key]??sigilDefaults[key],defaultValue=sigilDefaults[key];
+  // Older scenes and motif files did not have a root-only switch. Preserve
+  // their union geometry; new designs and built-in motifs include it explicitly.
+  const settings={};for(const key of keys){const v=value[key]??(key==='thornBaseOnly'?false:sigilDefaults[key]),defaultValue=sigilDefaults[key];
     if(typeof v!==typeof defaultValue||(typeof v==='number'&&(!Number.isFinite(v)||v<limits[key][0]||v>limits[key][1]))||(options[key]&&!options[key].includes(v))||(key==='color'&&!/^#[0-9a-f]{6}$/i.test(v)))throw new Error(`Invalid sigil setting: ${key}.`);
     if(key==='detailBudget'&&!Number.isSafeInteger(v))throw new Error('Detail budget must be a positive whole number.');
     settings[key]=['curveResolution','meshResolution','smoothPasses','seed','radialCopies','ridges'].includes(key)?Math.round(v):v;

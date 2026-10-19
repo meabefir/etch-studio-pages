@@ -1,8 +1,8 @@
 import {hatchingSettings,saveNamedPreset,readSavedPresets} from './settings.js?v=cross-angle-1';
-import {motifSettings} from './sigil-data.js';
-import {saveNamedMotif,readSavedMotifs} from './sigil-presets.js';
+import {motifSettings} from './sigil-data.js?v=thorn-base-only-1';
+import {saveNamedMotif,readSavedMotifs} from './sigil-presets.js?v=thorn-base-only-1';
 import {rampSettings,saveNamedRampPreset,readSavedRampPresets} from './toon-presets.js?v=stop-blending-1';
-import {validateScene} from './scenes.js?v=sigil-references-1';
+import {validateScene} from './scenes.js?v=thorn-base-only-1';
 
 const types={
   hatching:{label:'preset',validate:hatchingSettings,save:saveNamedPreset,read:readSavedPresets},

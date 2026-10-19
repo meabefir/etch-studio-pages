@@ -10,11 +10,11 @@ const cases=Array.from({length:16},(_,mask)=>{
 });
 // Only occupied blocks exist. Shared lattice nodes and tetrahedra keep tips
 // and joins closed, including across block boundaries.
-export function buildSparseSurface(groups,s,resolution,report){
+export function buildSparseSurface(groups,s,resolution,report,ownership=false){
   const variableBlend=groups.some(g=>g.settings&&g.settings.blend!==s.blend),step=resolution.step,blocks=new Map(),pages=[],key=(x,y,z)=>`${x},${y},${z}`;
   function page(x,y,z){const name=key(x,y,z);let block=blocks.get(name);if(!block){
     if((pages.length+1)*N>(s.detailBudget??9000000))throw new Error('The occupied mesh regions exceed the detail budget. Increase Detail budget in Resolution & finish, or reduce mesh resolution or Maximum detail boost.');
-    block={x,y,z,id:pages.length,field:new Float32Array(N).fill(1000),blends:variableBlend?new Float32Array(N):null,temp:new Float32Array(N),marks:new Uint32Array(N),group:0,touched:[]};pages.push(block);blocks.set(name,block);
+    block={x,y,z,id:pages.length,field:new Float32Array(N).fill(1000),owners:ownership?new Uint32Array(N):null,blends:variableBlend?new Float32Array(N):null,temp:new Float32Array(N),marks:new Uint32Array(N),group:0,touched:[]};pages.push(block);blocks.set(name,block);
   }return block;}
   const blockRadius=Math.sqrt(3)*(B-1)*step*.5;
   report({phase:'Sampling occupied regions',progress:0});
@@ -60,12 +60,12 @@ export function buildSparseSurface(groups,s,resolution,report){
     }
     for(const block of touchedBlocks)for(const i of block.touched){let d=block.temp[i];
       if(group.clip){const x=(block.x*B+i%B)*step,y=(block.y*B+Math.floor(i/B)%B)*step,z=(block.z*B+Math.floor(i/(B*B)))*step;for(const cap of group.clip)if(cap){const dx=x-cap.p[0],dy=y-cap.p[1],dz=z-cap.p[2];if(Math.hypot(dx,dy,dz)<cap.r*2+step*2)d=Math.max(d,dx*cap.t[0]+dy*cap.t[1]+dz*cap.t[2]);}}
-      const previous=block.field[i],k=variableBlend?Math.min(style.blend,block.blends[i]):style.blend;if(k>0&&previous<999){const h=Math.max(k-Math.abs(previous-d),0)/k;block.field[i]=Math.min(previous,d)-h*h*k*.25;}else block.field[i]=Math.min(previous,d);if(variableBlend&&d<previous)block.blends[i]=style.blend;
+      const previous=block.field[i],k=variableBlend?Math.min(style.blend,block.blends[i]):style.blend;if(k>0&&previous<999){const h=Math.max(k-Math.abs(previous-d),0)/k;block.field[i]=Math.min(previous,d)-h*h*k*.25;}else block.field[i]=Math.min(previous,d);if(variableBlend&&d<previous)block.blends[i]=style.blend;if(ownership&&d<previous)block.owners[i]=groupId;
     }
     if(gi%8===0)report({phase:'Sampling occupied regions',progress:Math.round((gi+1)/groups.length*55)});
   }
   let sampledNodes=0;for(const block of pages){for(const mark of block.marks)sampledNodes+=mark>0;block.temp=null;block.marks=null;block.touched=null;block.blends=null;}
-  let positions=new Float64Array(65536*3),normals=new Float64Array(65536*3),indices=new Uint32Array(65536*6),vertexCount=0,indexCount=0;
+  let positions=new Float64Array(65536*3),normals=new Float64Array(65536*3),indices=new Uint32Array(65536*6),vertexCount=0,indexCount=0;const owners=ownership?[]:null;
   const edges=new Map(),gradients=new Map(),total=pages.length*N,numericEdges=total*total<=Number.MAX_SAFE_INTEGER;
   const sampleValue=(x,y,z)=>{const bx=Math.floor(x/B),by=Math.floor(y/B),bz=Math.floor(z/B),block=blocks.get(key(bx,by,bz));return block?block.field[((z-bz*B)*B+y-by*B)*B+x-bx*B]:1000;};
   function gradient(id){let g=gradients.get(id);if(g)return g;const block=pages[Math.floor(id/N)],i=id%N,x=block.x*B+i%B,y=block.y*B+Math.floor(i/B)%B,z=block.z*B+Math.floor(i/(B*B));g=[sampleValue(x+1,y,z)-sampleValue(x-1,y,z),sampleValue(x,y+1,z)-sampleValue(x,y-1,z),sampleValue(x,y,z+1)-sampleValue(x,y,z-1)];gradients.set(id,g);return g;}
@@ -75,7 +75,7 @@ export function buildSparseSurface(groups,s,resolution,report){
     const ax=blockA.x*B+ia%B,ay=blockA.y*B+Math.floor(ia/B)%B,az=blockA.z*B+Math.floor(ia/(B*B)),bx=blockB.x*B+ib%B,by=blockB.y*B+Math.floor(ib/B)%B,bz=blockB.z*B+Math.floor(ib/(B*B));
     const ga=gradient(a),gb=gradient(b),nx=ga[0]+(gb[0]-ga[0])*t,ny=ga[1]+(gb[1]-ga[1])*t,nz=ga[2]+(gb[2]-ga[2])*t,length=Math.hypot(nx,ny,nz)||1,id=vertexCount++,i=id*3;
     if(i+3>positions.length){const p=new Float64Array(positions.length*2),n=new Float64Array(normals.length*2);p.set(positions);n.set(normals);positions=p;normals=n;}
-    positions[i]=(ax+(bx-ax)*t)*step;positions[i+1]=(ay+(by-ay)*t)*step;positions[i+2]=(az+(bz-az)*t)*step;normals[i]=nx/length;normals[i+1]=ny/length;normals[i+2]=nz/length;edges.set(name,id);return id;
+    positions[i]=(ax+(bx-ax)*t)*step;positions[i+1]=(ay+(by-ay)*t)*step;positions[i+2]=(az+(bz-az)*t)*step;normals[i]=nx/length;normals[i+1]=ny/length;normals[i+2]=nz/length;if(ownership)owners.push(va<0?blockA.owners[ia]:blockB.owners[ib]);edges.set(name,id);return id;
   }
   function triangle(a,b,c){
     const ai=a*3,bi=b*3,ci=c*3,ax=positions[bi]-positions[ai],ay=positions[bi+1]-positions[ai+1],az=positions[bi+2]-positions[ai+2],bx=positions[ci]-positions[ai],by=positions[ci+1]-positions[ai+1],bz=positions[ci+2]-positions[ai+2],nx=normals[ai]+normals[bi]+normals[ci],ny=normals[ai+1]+normals[bi+1]+normals[ci+1],nz=normals[ai+2]+normals[bi+2]+normals[ci+2];
@@ -99,5 +99,5 @@ export function buildSparseSurface(groups,s,resolution,report){
     if(bi%40===0)report({phase:'Closing local surfaces',progress:60+Math.round(bi/pages.length*35)});
   }
   if(!indexCount)throw new Error('The curves are too thin at this detail setting. Increase mesh detail or vertex radius.');Object.assign(resolution,{cells:total,blocks:pages.length,sampledNodes});
-  return {position:new Float32Array(positions.subarray(0,vertexCount*3)),normal:new Float32Array(normals.subarray(0,vertexCount*3)),index:indices.slice(0,indexCount),grid:resolution.dimensions,step,triangles:indexCount/3,resolution};
+  return {position:new Float32Array(positions.subarray(0,vertexCount*3)),normal:new Float32Array(normals.subarray(0,vertexCount*3)),index:indices.slice(0,indexCount),grid:resolution.dimensions,step,triangles:indexCount/3,resolution,...(ownership?{owners:Uint32Array.from(owners)}:{})};
 }

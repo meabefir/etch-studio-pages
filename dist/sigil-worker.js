@@ -1,4 +1,4 @@
-import { buildSigil } from './sigil-geometry.js?v=sigil-performance-1';
+import { buildSigil } from './sigil-geometry.js?v=thorn-base-only-1';
 const cache={};
 self.onmessage=({data})=>{
   try{

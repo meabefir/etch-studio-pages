@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import {nodeMap,pointOf,radiusOf,curveSettings,motifSettings} from './sigil-data.js';
-import {sampleCurve} from './sigil-geometry.js?v=sigil-performance-1';
+import {nodeMap,pointOf,radiusOf,curveSettings,motifSettings} from './sigil-data.js?v=thorn-base-only-1';
+import {sampleCurve} from './sigil-geometry.js?v=thorn-base-only-1';
 
 // Keep GPU buffers and sampled curves between edits. All grab points share one
 // instanced draw, rather than allocating and drawing a sphere for every vertex.
