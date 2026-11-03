@@ -2,7 +2,7 @@ import { registerBrowserTools } from './browser-tools.js';
 import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=fbx-import-1';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
 import { ToonEditor } from './toon-editor.js?v=thorn-base-only-1';
-import { EtchEngine } from './engine.js?v=fbx-import-1';
+import { EtchEngine } from './engine.js?v=rename-objects-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
 import { starterSigil } from './sigil-data.js?v=thorn-base-only-1';
@@ -10,7 +10,7 @@ import { cameraDefaults, projections } from './lenses.js';
 import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=fbx-import-1';
 
 const $ = id => document.getElementById(id);
-let engine, importBusy = false, toastTimer;
+let engine, importBusy = false, toastTimer, renameTarget = null;
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
 function tab(which) { for(const name of ['hatch','selection','depth','toon']){const active=which===name;$(name+'-settings').hidden=!active;$(name+'-tab').classList.toggle('active',active);$(name+'-tab').setAttribute('aria-selected',String(active));} }
 const controls = new Map();
@@ -21,6 +21,12 @@ async function editSigil(entry) { if (sigilEditor && !sigilEditor.closed) return
 async function addSigil() {
   if (importBusy || sceneBusy) return toast('Wait for scene loading to finish.'); importBusy = true; $('loading').hidden = false; $('loading').textContent = 'Growing sigil geometry…'; $('add-sigil').disabled = true;
   try { let name='Nature sigil',i=1; while(engine.models.some(e=>e.name===name)) name=`Nature sigil ${++i}`; const entry=await engine.createSigil(starterSigil(),name); engine.select(entry); engine.frame(entry); tab('selection'); await editSigil(entry); } catch(e) { toast(e.message); } finally { importBusy=false; $('loading').hidden=true; $('add-sigil').disabled=false; }
+}
+function renameSelected() {
+  if(!engine.selected||importBusy||sceneBusy||engine.navigation.active||engine.transform.dragging||document.querySelector('dialog[open]'))return;
+  renameTarget=engine.selected;
+  $('object-name').value=renameTarget.name.slice(0,100);$('rename-error').hidden=true;
+  $('rename-object-dialog').showModal();$('object-name').focus();$('object-name').select();
 }
 function duplicateSelected() {
   if(sceneBusy||importBusy)return toast('Wait for scene loading to finish.');
@@ -397,11 +403,19 @@ async function init() {
   };
   window.addEventListener('storage', e => { if (e.key === SCENE_STORAGE_KEY || e.key === null) { try { savedScenes = readSavedScenes(localStorage); populateScenes(); } catch (error) { toast(error.message); } } if (e.key === PRESET_STORAGE_KEY || e.key === null) { try { savedPresets = readSavedPresets(localStorage); populatePresets(); updatePresetStatus(); } catch (error) { toast(error.message); } } });
   const outputEditor=new OutputEditor(engine);$('export').onclick=()=>outputEditor.open();
+  $('cancel-rename-object').onclick=()=>$('rename-object-dialog').close();
+  $('rename-object-dialog').addEventListener('close',()=>{renameTarget=null;});
+  $('rename-object-form').onsubmit=e=>{
+    e.preventDefault();
+    try{engine.rename(renameTarget,$('object-name').value);$('rename-object-dialog').close();}
+    catch(error){$('rename-error').textContent=error.message;$('rename-error').hidden=false;$('object-name').focus();}
+  };
   document.addEventListener('keydown', e => {
     if (engine.navigation.active || engine.transform.dragging || document.querySelector('dialog[open]') || e.isComposing || e.target.matches?.('input,select,textarea') || e.target.isContentEditable) return;
     const key = e.key.toLowerCase();
     if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&key==='d'){e.preventDefault();if(!e.repeat)duplicateSelected();return;}
     if(e.ctrlKey||e.metaKey||e.altKey)return;
+    if(key==='f2'&&!e.shiftKey){e.preventDefault();if(!e.repeat)renameSelected();return;}
     if (['delete', 'backspace', 'f', 'w', 'e', 'r', 'escape', '1', '2'].includes(key)) e.preventDefault();
     if (key === 'delete' || key === 'backspace') engine.remove();
     else if (key === 'f') engine.frame(); else if (key === 'escape') engine.select(null);

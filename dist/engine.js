@@ -308,6 +308,13 @@ export class EtchEngine extends EventTarget {
       uLights: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uPowers: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) }
     } });
   }
+  rename(entry, name) {
+    if(!entry||![...this.models,...this.lights,...this.cameras].includes(entry))throw new Error('Select an object to rename.');
+    if(typeof name!=='string'||!name.trim()||name.trim().length>100)throw new Error('Enter an object name between 1 and 100 characters.');
+    entry.name=name.trim();if(entry.object)entry.object.name=entry.name;
+    this.emit('scene');this.emit('selection',this.selected);
+    return entry.name;
+  }
   async addModel(root, name, fit = true, register = true) {
     if (register && this.models.length >= 200) throw new Error('The scene supports up to 200 models.');
     root.updateMatrixWorld(true);
