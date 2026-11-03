@@ -19,7 +19,7 @@ createServer(async (req, res) => {
       if (!req.headers['content-type']?.startsWith('application/json')) { res.writeHead(415).end('Send a JSON model path.'); return; }
       let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 8192) { res.writeHead(413).end('Path request too long.'); return; } }
       let path; try { path = JSON.parse(body).path; } catch { res.writeHead(400).end('Invalid path request.'); return; }
-      if (typeof path !== 'string' || !isAbsolute(path) || !['.obj', '.glb'].includes(extname(path).toLowerCase())) { res.writeHead(400).end('Enter the full local path to an OBJ or GLB file.'); return; }
+      if (typeof path !== 'string' || !isAbsolute(path) || !['.obj', '.glb', '.fbx'].includes(extname(path).toLowerCase())) { res.writeHead(400).end('Enter the full local path to an OBJ, GLB or FBX file.'); return; }
       try {
         const info = await stat(path); if (!info.isFile()) throw new Error('Not a file');
         if (pathname === '/api/model-info') { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ filename: basename(path), size: info.size })); return; }

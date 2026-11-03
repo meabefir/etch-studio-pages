@@ -2,7 +2,7 @@ import {hatchingSettings,saveNamedPreset,readSavedPresets} from './settings.js?v
 import {motifSettings} from './sigil-data.js?v=thorn-base-only-1';
 import {saveNamedMotif,readSavedMotifs} from './sigil-presets.js?v=thorn-base-only-1';
 import {rampSettings,saveNamedRampPreset,readSavedRampPresets} from './toon-presets.js?v=stop-blending-1';
-import {validateScene} from './scenes.js?v=thorn-base-only-1';
+import {validateScene} from './scenes.js?v=fbx-import-1';
 
 const types={
   hatching:{label:'preset',validate:hatchingSettings,save:saveNamedPreset,read:readSavedPresets},
@@ -26,7 +26,7 @@ export function decodeSharedFile(text,expectedType){
 }
 export async function readSharedFile(file,type){
   if(!file||typeof file.text!=='function')throw new Error('Choose a preset or scene file.');
-  if(file.size>64*1024*1024)throw new Error('Preset and scene files must be smaller than 64 MB. Model geometry belongs in separate OBJ or GLB files.');
+  if(file.size>64*1024*1024)throw new Error('Preset and scene files must be smaller than 64 MB. Model geometry belongs in separate OBJ, GLB or FBX files.');
   return decodeSharedFile(await file.text(),type);
 }
 export function sharedFilename(type,name){

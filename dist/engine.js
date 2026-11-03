@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { parseMeshOBJ } from './obj-import.js?v=obj-faces-1';
+import { parseMeshFBX } from './fbx-import.js?v=fbx-import-1';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -361,17 +362,18 @@ export class EtchEngine extends EventTarget {
   async load(file, { register = true, source = null } = {}) {
     const ext = file.name.split('.').pop().toLowerCase(); let root;
     if (ext === 'obj') root = parseMeshOBJ(await file.text());
+    else if (ext === 'fbx') root = parseMeshFBX(await file.arrayBuffer());
     else if (ext === 'glb') {
       const loader = new GLTFLoader(), draco = new DRACOLoader(); draco.setDecoderPath('./vendor/addons/libs/draco/gltf/'); loader.setDRACOLoader(draco); loader.setMeshoptDecoder(MeshoptDecoder);
       // Geometry-only import: skip texture decoding and material extension setup.
       loader.register(parser => { parser.loadMaterial = () => Promise.resolve(new THREE.MeshBasicMaterial()); return { name: 'ETCH_GEOMETRY_ONLY' }; });
       try { root = (await loader.parseAsync(await file.arrayBuffer(), '')).scene; } finally { draco.dispose(); }
-    } else throw new Error('Choose an OBJ or GLB file.');
+    } else throw new Error('Choose an OBJ, GLB or FBX file.');
     const imported=[],baseName=file.name.replace(/\.[^.]+$/, ''),parts=[];root.traverse(node=>{if(node.isMesh&&node.geometry?.attributes.position)parts.push(node);});
     try{
-      const split=ext==='obj'&&(parts.length>1||source?.part!=null)&&(register||source?.part!=null);
+      const split=(ext==='obj'||ext==='fbx')&&(parts.length>1||source?.part!=null)&&(register||source?.part!=null);
       if(split){
-        const chosen=source?.part!=null?[parts[source.part]]:parts;if(chosen.some(node=>!node))throw new Error('The saved OBJ object is missing from this file. Relink the original file or import it again.');
+        const chosen=source?.part!=null?[parts[source.part]]:parts;if(chosen.some(node=>!node))throw new Error('The saved model part is missing from this file. Relink the original file or import it again.');
         if(register&&this.models.length+chosen.length>200)throw new Error('The scene supports up to 200 models.');
         const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=3.7/Math.max(size.x,size.y,size.z);
         if(!Number.isFinite(factor))throw new Error('The model geometry is empty or invalid.');root.position.sub(center).multiplyScalar(factor);root.scale.multiplyScalar(factor);root.updateMatrixWorld(true);

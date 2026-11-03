@@ -1,13 +1,13 @@
 import { registerBrowserTools } from './browser-tools.js';
-import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=thorn-base-only-1';
+import {attachFileControls,importSharedPreset,presetImportMessage,importedName} from './share-files.js?v=fbx-import-1';
 import { OutputEditor } from './output-editor.js?v=transparent-png-1';
 import { ToonEditor } from './toon-editor.js?v=thorn-base-only-1';
-import { EtchEngine } from './engine.js?v=thorn-base-only-1';
+import { EtchEngine } from './engine.js?v=fbx-import-1';
 import { defaults, depthKeys, hardKeys, hatchingSettings, lightDefaults, definitions, builtinPresets, PRESET_STORAGE_KEY, readSavedPresets, saveNamedPreset, settingsMatch } from './settings.js?v=cross-angle-1';
 
 import { starterSigil } from './sigil-data.js?v=thorn-base-only-1';
 import { cameraDefaults, projections } from './lenses.js';
-import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=thorn-base-only-1';
+import { SCENE_STORAGE_KEY, readSavedScenes, saveNamedScene, snapshotScene, localModel } from './scenes.js?v=fbx-import-1';
 
 const $ = id => document.getElementById(id);
 let engine, importBusy = false, toastTimer;
