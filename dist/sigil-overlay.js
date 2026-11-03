@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {nodeMap,pointOf,radiusOf,curveSettings,motifSettings} from './sigil-data.js?v=thorn-base-only-1';
+import {nodeMap,pointOf,radiusOf,curveSettings,motifSettings,resolveNode} from './sigil-data.js?v=thorn-base-only-1';
 import {sampleCurve} from './sigil-geometry.js?v=thorn-base-only-1';
 
 // Keep GPU buffers and sampled curves between edits. All grab points share one
@@ -19,7 +19,7 @@ export class SigilCurveOverlay{
     const settings=curveSettings(design,curve),key=JSON.stringify([settings.curveResolution,motifSettings(settings),curve.nodes.map(n=>[pointOf(n,map),n.in,n.out,radiusOf(n,map),Boolean(n.link)])]);
     let cached=this.samples.get(curve.id);if(!cached||cached.key!==key){cached={key,points:sampleCurve(curve,design,null,map).map(p=>p.p)};this.samples.set(curve.id,cached);}return cached.points;
   }
-  rebuild(design,selected){
+  rebuild(design,selected,selectedIds=null){
     this.group.visible=design.settings.showCurves;if(!this.group.visible)return this.markers;
     const map=nodeMap(design),plus=(p,h)=>p.map((v,i)=>v+h[i]);let lineCount=0,markerCount=0;
     this.ensureCapacity(design.curves.reduce((n,c)=>n+c.nodes.length,0)+(design.curves.find(c=>c.id===selected.curve)?.nodes.length||0)*2);
@@ -39,7 +39,7 @@ export class SigilCurveOverlay{
       const copies=s.symmetry==='radial'?s.radialCopies:s.symmetry==='mirror'?2:1;
       for(let copy=1;copy<copies;copy++){const a=copy*Math.PI*2/copies,c=Math.cos(a),sn=Math.sin(a);line(points.map(p=>s.symmetry==='mirror'?[-p[0],p[1],p[2]]:[c*p[0]-sn*p[1],sn*p[0]+c*p[1],p[2]]),'#577977',.4);}
       for(const node of curve.nodes){
-        const p=pointOf(node,map),pick={curve:curve.id,node:node.id};marker(p,node.link?'#70d0b0':node.id===selected.node?'#ffe0a5':'#d6ad78',{...pick,part:'p'},node.id===selected.node?5.5:4.5);
+        const p=pointOf(node,map),pick={curve:curve.id,node:node.id},chosen=selectedIds?selectedIds.has(resolveNode(node,map).id):node.id===selected.node;marker(p,chosen?'#ffe0a5':node.link?'#70d0b0':'#d6ad78',{...pick,part:'p'},chosen?6:4.5);
         if(curve.id===selected.curve)for(const part of ['in','out']){const handle=plus(p,node[part]),color=part==='in'?'#b998ef':'#73b5e2';line([p,handle],color,.8);marker(handle,color,{...pick,part},3.5);}
       }
     }
